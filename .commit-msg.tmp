@@ -1,64 +1,44 @@
-Step 4 (Wave D): 5 invoked agents + Agent 27 calibration lookup
+Step 4 final: wave orchestration (runWaveA/B/C/D) with parallel fan-out
 
-Wave D contains 16 conceptual agents (25-40) but only 5 run per-upload at
-runtime. The other 11 are research-only deliverables (orchestration,
-prompt engineering, UX layouts, override capture, replay engine, cost
-engineering, privacy posture, anti-overfitting discipline, red-team
-synthesis) — schemas exist in shared/schemas.ts for completeness; no
-invocation functions needed.
+src/lib/agents/waveA/index.ts — runWaveA(input) -> WaveAResult
+- Promise.allSettled across all 8 agents (01-08)
+- Returns WaveAResult with named fields (agent_01..agent_08) plus errors[]
+- Individual agent failure preserves other outputs (synthesis decides nulls)
 
-agent-25 Disqualifier Catalog (Opus, 600 tokens, VETO YES)
-- Owns V1, V5, V7, V8, V9, V11. Defers V2/V3/V4/V6/V10 to owner agents.
-- 11-veto registry; intentionally short list to avoid no-trade-machine
-  drift.
-- Calibration warning: 1/11 corpus rate is NOT production rate.
+src/lib/agents/waveB/index.ts — runWaveB(input) -> WaveBResult
+- 8 agents (09-16) in parallel
+- Agent 14 -> Agent 09 downgrade interaction handled at Wave E §1.4
 
-agent-26 Confirmation Bias Detector (Opus, 600 tokens, no veto)
-- Red-teams every TAKE NOW candidate. Wave E section 4 consumes
-  skepticism_score as [0.7, 1.0] multiplier on composite.
-- Mandatory strongest_counter_argument + chart_evidence (or null).
-- Asymmetric loss accounting: false-TAKE costs ~2x false-SKIP.
-- Optional upstreamSummary input lets Wave E feed in current verdict
-  context to make the red-team specific.
+src/lib/agents/waveC/index.ts — runWaveC(input) -> WaveCResult
+- 8 agents in parallel; 19/22/23 take optional context inputs
+  (candidatesContext, eventContext, behavioralContext)
+- Agent 27 calibration lookup is NOT included here (non-LLM, separate)
 
-agent-28 Position Sizing & Tier (Sonnet, 500 tokens)
-- V1 collapsed to GO/NO-GO + SMALL/NORMAL bucket per fixed 3-contract
-  sizing. LARGE bucket gated until replay-engine validation passes
-  (Agent 35 section 4).
-- Pattern shape detection (single/pyramid_concentrated/staggered_reentry/
-  cross_tier_cascade) per Image 09/10/11 exemplars.
-- Cascade-add discount: -1 bucket per add depth.
-- Behavioral state override: Agent 23 confirmed_tilt forces SMALL/SKIP.
+src/lib/agents/waveD/index.ts — runWaveD(input) -> WaveDResult
+- Only 25 + 26 run as parallel Wave D fan-out
+- 28 deferred to Wave E (needs composite score)
+- 38 runs in Wave 0 input quality gate
+- 11 research-only agents (29/30/31/32/33/34/35/36/37/39/40) have no
+  invocation function — schemas exist for completeness only
 
-agent-38 Robustness / Input Quality Gate (Sonnet, 600 tokens)
-- Runs in Wave 0 as the input-quality pre-check (per Wave E spec
-  section 0). Folder is waveD for naming consistency, function is Wave 0.
-- 12 ranked heuristics across 3 severity tiers (HARD ABSTAIN /
-  DEGRADE+FLAG / SOFT WARN). Cumulative degradation budget = 2.0.
-- Emits context_bundle (platform/theme/instrument/timeframe/
-  staleness/candle_count/score_cap) for downstream agents.
-- Distinguishes platform-native annotations (NinjaTrader Entry/Target
-  arrows) from user-drawn annotations.
+Tests: parallel-fan-out tests verify Promise.allSettled behavior:
+- All 8 happy path -> all named outputs populated, errors=[]
+- Single agent rejection -> that field=null, others preserved, error
+  recorded with message
+- Wave A in-flight tracking test verifies max concurrency = 8
+  (proves parallel execution, not sequential)
+- Wave C context-passthrough verifies 19/22/23 receive their optional
+  contexts
+- Wave D upstreamSummary passthrough to Agent 26
 
-src/lib/calibration/lookup.ts — Agent 27 NON-LLM lookup
-- Per Agent 27 deliverable: per-upload calibration is a database
-  lookup, not an LLM call. Recalibration loop (batch refit) lives
-  in replay-engine sidecar.
-- 4-state ladder (none/uncalibrated/rough/provisional/calibrated)
-  driven by reconciled trade count per cell.
-- Cold-start probability: linear interpolation between [0.30, 0.65]
-  with ±20pp wide CI until N>=20 fitted.
-- V1 production stub: always returns cold-start values; Phase 1.5
-  Stage 5 + production reconciliation will populate calibration_active.
+Step 4 status: COMPLETE.
+Total LLM-invocable agents wired: 28 (4 Wave 0 + 8 Wave A + 8 Wave B
++ 8 Wave C + 5 Wave D-equivalent — 25/26/28/38 + Wave 0's 38 dual-purpose).
+Plus 1 non-LLM lookup (Agent 27 calibration).
 
-Tests: 38 new tests across 5 invoked agents + calibration lookup,
-covering enum exhaustiveness, schema validation failures, abstain
-handling, optional-context inputs (Agent 26 upstreamSummary, Agent 28
-compositeScore), V1-specific gating (LARGE bucket rejected, contract
-count clamps).
+298 vitest passing total (289 from Wave D + 9 new orchestration).
+TypeScript type-check clean.
 
-289 vitest passing total (251 from Wave C + 38 new).
-134 pytest still passing. TypeScript type-check clean.
-
-Stage 4 sampling note: 450-chart pilot batch (150/150/150) when
-runner gets built post-Step 6 halt. Batch-aware: --size N --batch-id NNN.
+Next: Step 5 (Wave E synthesis stub implementations + scoreChart()
+integration) -> Step 6 (mocked end-to-end smoke test) -> halt for
+user go-ahead on Stage 4 mass scoring.
