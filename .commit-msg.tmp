@@ -1,52 +1,70 @@
-Step 3: Wave 0 agents (00a/00b/00c/00d) + runWave0 orchestration
+Step 4 (Wave A): 8 structural agents (01-08), all Opus tier
 
-src/lib/agents/shared/
-- invoke.ts: generic agent invocation harness with prompt-cache, JSON
-  extraction (handles prose-wrapped responses), Zod validation,
-  AgentInvocationError on parse/schema failures
-- schemas.ts: Zod runtime schemas for all 4 Wave 0 agents matching the
-  TS interfaces in src/types/agents.ts
-- prompt-loader.ts: caches .md prompt files per-process
+shared/schemas.ts expanded with Zod runtime schemas for all 44 agents
+(Wave 0 + 40 specialists across A/B/C/D). Mirrors src/types/agents.ts
+TypeScript interfaces, with z.literal pinning agent_id per agent.
 
-src/lib/agents/wave0/
-- agent-00a-prompt.md + agent-00a.ts (Haiku, max_tokens 350)
-  Timeframe detector. Reads NinjaTrader header / EMA legend / TOS Mobile
-  header. Bar-density inference fallback capped at confidence 70. Abstain
-  on NON_TIME_BARS / OTHER / unreadable.
+Wave A specialists — base composite owners + structural readers:
 
-- agent-00b-prompt.md + agent-00b.ts (Opus, max_tokens 600)
-  Chart state classifier. 9 states with eligible verdict-mode mappings.
-  state_at_right_edge field for cycling charts.
+agent-01 Prior Trend Strength (Opus, 600 tokens)
+- 8-state taxonomy: strong_young / strong_mature / healthy_ongoing /
+  trend_forming / weak_decaying / chop_disguised / no_trend /
+  parabolic_exhaustion. 5-signature parabolic catalogue caps score at 50.
+- Variant B regime-establishment routes to trend_forming (45-59).
 
-- agent-00c-prompt.md + agent-00c.ts (Opus, max_tokens 500)
-  Setup variant classifier. VARIANT_A is V1 happy path; B/C/D/OTHER
-  route to SKIP_OUT_OF_SCOPE per architecture/01-pattern-taxonomy.md.
-  ABSTAIN_INPUT for unreadable charts.
+agent-02 EMA Cloud Geometry (Opus, 700 tokens)
+- HEAVIEST base composite contributor — 39 percent of Wave E score
+  (cloud compression 25 + EMA acceleration 14 via 70/30 split).
+- Per-pair slope numeric estimates for blue/yellow/white plus regime_label
+  from 13-category visual library. Macro_visible flag handles TOS mobile
+  cropping. Direction-bias-via-weighted-slope-sum.
 
-- agent-00d-prompt.md + agent-00d.ts (Sonnet, max_tokens 500)
-  Anticipation/wait-level. Cloud-as-level priority hierarchy. Time
-  window heuristic with 1.5-2x pessimism multiplier. Hard ATR distance
-  cap. Mandatory invalidation_price. Score < 55 abstains to SKIP.
+agent-03 Pullback Geometry (Opus, 600 tokens)
+- Variant A only; abstains on B/C/D. 6-signature shape taxonomy.
+- depth_tier_multiplier (0.50-1.05) consumed by Wave E for tier interaction.
+- through_macro forces abstain (structural break).
 
-- index.ts: runWave0() orchestration
-  Pipeline: 00a -> if abstain bail (no Opus calls). Else 00b+00c
-  parallel. 00c=non-A -> out_of_scope (skip 00d). State actionable
-  (REJECTION_FIRING / PULLBACK_IN_PROGRESS) -> actionable_now (skip 00d).
-  State worth watching -> 00d -> wait_for_level or skip_no_edge based
-  on 00d score. RANGE_BOUND/INSUFFICIENT_HISTORY -> skip_no_edge direct.
+agent-04 Cloud Penetration (Opus, 700 tokens)
+- Routing label tier (1/2/3/null) drives downstream tier-specific rubrics.
+- 6 penetration classes, 5-band residence-time tier-downgrade logic.
+- Wick:body ratio with >=2.0 = gold. Multi-touch tracking with
+  +5/+10/-10 score adjustments. tier_provisional flag for sparse
+  Tier 3 corpus evidence.
 
-Tests:
-- 16 invoke harness tests (extractJson edge cases, mock SDK, error paths)
-- 7 agent-00a tests (timeframe enum, source enum, Haiku tier, max_tokens)
-- 8 agent-00b tests (all 9 states, recommended_verdict_modes validation)
-- 7 agent-00c tests (V1 vs V2 variants, ABSTAIN_INPUT, secondary_variants)
-- 8 agent-00d tests (window enum, layer enum, abstain, all directions)
-- 17 runWave0 orchestration tests (5 routing categories, cost discipline,
-  parallel 00b+00c, downstream agent skipping)
+agent-05 Market Structure HH/HL or LH/LL (Opus, 600 tokens)
+- Pivots are primary, EMAs derived. 6-state intactness taxonomy.
+- Magnitude filter at 1x blue cloud width. EMA-vs-structure conflict
+  resolution rules. Range mode for non-trending charts.
 
-121/121 vitest pass total. 134/134 pytest pass (no Python changes).
-TypeScript type-check clean. Python audit clean.
+agent-06 Trend Maturity Exhaustion (Opus, 600 tokens)
+- Score INVERTS with maturity (higher = more mature). 7-state taxonomy
+  with established (41-60) as the entry sweet spot.
+- 5-signature visual catalogue; >=2 firing forces actively_exhausting.
+- consider_reversal=true at actively_exhausting/blow_off.
+- Naive sum with Agent 11 forbidden per Wave E spec section 5
+  (multiplicative interaction).
 
-All Wave 0 prompts use Anthropic prompt caching on the system prompt
-per Wave E spec section 13. Real API calls deferred until user provides
-real ANTHROPIC_API_KEY (currently placeholder per autonomous build auth).
+agent-07 Choppiness Regime (Opus, 700 tokens, VETO YES)
+- 7 regime labels. Veto fires on label=CHOP AND confidence>=75 AND
+  not abstain. Sub-30s timeframes escalate to 85.
+- veto_overridable flag for soft-chop/HTF-context/event-window cases.
+- Cost-asymmetry argument: false-pass is 3-4x worse than false-veto.
+- Right-edge weighting 2x for transition-from-chop charts.
+- News interaction: Agent 22 event-window flag down-weights chop reading.
+
+agent-08 Multi-EMA Confluence (Opus, 600 tokens)
+- ALIGNMENT-GATE OWNER. alignment_against drives Wave E hard cap:
+  none -> no cap; short_structural OR macro -> cap 55;
+  both_macro_and_short_structural -> cap 40; all_tangled -> cap 50
+  with verdict-mode downgrade.
+- tier_backdrop (0/1/2/3) decoupled from Agent 04 tier (which-cloud-
+  touched vs regime-quality-supporting).
+- Which-two-of-three logic: blue dissent forgivable, macro dissent
+  most concerning.
+
+Tests: 46 new tests across 8 agents covering happy paths, all enum
+values, schema validation failures, abstain handling, tier-specific
+behavior. Verifies Opus model selection and per-agent max_tokens.
+
+167 vitest passing total (121 from Step 3 + 46 new). 134 pytest still
+passing. TypeScript type-check clean.
