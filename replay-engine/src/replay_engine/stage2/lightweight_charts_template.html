@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Replay Renderer</title>
+  <!--
+    TradingView Lightweight Charts via CDN.
+    Pinned to a specific version for renderer-version reproducibility per
+    Agent 35 §2 reproducibility-via-pinned-everything discipline.
+  -->
+  <script src="https://unpkg.com/lightweight-charts@5.0.7/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+    #chart { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+  <script>
+    // Exposed for Python Playwright to call via page.evaluate().
+    // Payload shape is documented in renderer.py RenderRequest.
+    window.renderChart = function (payload) {
+      const cfg = payload.config;
+      const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+        layout: {
+          background: { type: 'solid', color: cfg.background_color },
+          textColor: '#cccccc',
+        },
+        grid: {
+          vertLines: { color: '#1a1a1a' },
+          horzLines: { color: '#1a1a1a' },
+        },
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+          borderColor: '#333',
+        },
+        rightPriceScale: { borderColor: '#333' },
+      });
+
+      // Candlesticks
+      const candles = chart.addSeries(LightweightCharts.CandlestickSeries, {
+        upColor: cfg.candle_up_color,
+        downColor: cfg.candle_down_color,
+        borderUpColor: cfg.candle_up_color,
+        borderDownColor: cfg.candle_down_color,
+        wickUpColor: cfg.candle_up_color,
+        wickDownColor: cfg.candle_down_color,
+      });
+      candles.setData(payload.ohlcv);
+
+      // EMA cloud helper — render the pair as fill + two thin lines.
+      // Lightweight Charts doesn't natively support filled regions between
+      // two series, so for V1 we draw the two EMA lines and let SSIM tolerate
+      // the lack of fill. If golden-file SSIM fails on this, we'll add a
+      // canvas-overlay fill (TODO: defer to first iteration that needs it).
+      function addCloudPair(faster, slower, color) {
+        const f = chart.addSeries(LightweightCharts.LineSeries, {
+          color: color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
+        });
+        f.setData(faster);
+        const s = chart.addSeries(LightweightCharts.LineSeries, {
+          color: color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
+        });
+        s.setData(slower);
+      }
+
+      addCloudPair(payload.ema_72, payload.ema_89, cfg.blue_cloud_color);
+      addCloudPair(payload.ema_216, payload.ema_267, cfg.yellow_cloud_color);
+      addCloudPair(payload.ema_720, payload.ema_890, cfg.white_cloud_color);
+
+      chart.timeScale().fitContent();
+
+      // Signal back to Playwright that render is complete
+      window.__renderReady = true;
+    };
+  </script>
+</body>
+</html>

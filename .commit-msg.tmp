@@ -1,12 +1,51 @@
-audit linter: support inline audit-ok suppression markers
+Stage 2: chart renderer foundation + SSIM golden-file gate
 
-shared/audit.py: lines containing `# audit-ok: <reason>` (with a non-empty
-reason) are now skipped by the pattern scanner. Used at any call site
-where the static pattern is a false positive but the semantic intent
-is safe (e.g., reading a single column from full_df to derive t_now
-itself, before passing into materialize_frame).
+replay-engine/src/replay_engine/stage2/
 
-candidate_detector.py: marked the random-samples timestamp lookup
-with audit-ok and a one-line reason.
+renderer.py
+- Async render() function wrapping Playwright headless Chromium
+- Two locked profiles (ninjatrader_1min_dark, tos_mobile_dark) per
+  pipeline spec section 5.2
+- Profile configs: background colors, candle styles (solid for NT,
+  TOS-hollow for TOS), cloud colors per platform, viewport dimensions
+- PlaywrightNotInstalled exception when browser binaries missing
+- Note: requires `playwright install chromium` to be run once on the
+  host before render() succeeds; deferred until user returns
 
-Audit clean. 92/92 pytest still pass.
+lightweight_charts_template.html
+- TradingView Lightweight Charts pinned to v5.0.7 via unpkg CDN
+- window.renderChart(payload) callable from Python via page.evaluate()
+- Renders candlesticks + 6 EMA lines (3 cloud pairs)
+- TODO: filled regions between EMA pairs deferred until first
+  golden-file SSIM iteration that needs it
+
+golden_file.py
+- SSIM comparator using scikit-image structural_similarity
+- SSIM_THRESHOLD = 0.85, MAX_RENDERER_ITERATIONS = 5 per spec section 5.3
+- compute_ssim, best_match, gate_passed
+- GoldenFileRegistry maps profile to exemplar PNG paths
+
+scikit-image added to pyproject.toml dependencies.
+
+tests/test_golden_file.py - 12 tests:
+- spec invariants (threshold, max iterations)
+- identical images score 1.0
+- very-different images fail threshold
+- resize handles mismatched dimensions
+- low-noise passes threshold
+- best_match picks highest SSIM
+- empty references raises
+- gate passes when all samples beat threshold
+- gate fails when any sample below
+- registry resolves NT-profile and TOS-profile exemplars (skipped if
+  exemplars dir absent on the dev machine)
+
+Subtle bug fixed: imread(as_gray=True) returns uint8 (0-255) for 8-bit
+PNGs while resize() returns float (0-1). Mixed dtypes destroyed SSIM.
+img_as_float normalizes both before compare.
+
+104 pytest pass total. Audit clean. 54 vitest still pass.
+
+Stage 2 RUN remains halted until user runs `playwright install
+chromium` (~150MB Chromium download) and verifies golden-file SSIM
+against the 11 chart-exemplars.

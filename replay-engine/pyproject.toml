@@ -26,6 +26,7 @@ dependencies = [
 
     # Indicators / math
     "scikit-learn>=1.4",      # isotonic regression, calibration
+    "scikit-image>=0.22",     # SSIM for renderer golden-file gate
     "scipy>=1.13",
 
     # Plotting (Stage 5)
