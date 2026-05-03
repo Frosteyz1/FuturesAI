@@ -1,14 +1,52 @@
-Add AUTONOMOUS-DECISIONS.md session log
+Step 3: Wave 0 agents (00a/00b/00c/00d) + runWave0 orchestration
 
-Documents the 12 non-trivial implementation decisions made during the
-2026-05-03 autonomous build session. Includes:
-- 7 commits chronological list
-- Final test counts (134 pytest + 54 vitest, audit clean)
-- 12 specific autonomous calls with rationale
-- What's halted (true blockers)
-- What's pending downstream work
-- Files added/modified summary
-- Recommended next user actions
+src/lib/agents/shared/
+- invoke.ts: generic agent invocation harness with prompt-cache, JSON
+  extraction (handles prose-wrapped responses), Zod validation,
+  AgentInvocationError on parse/schema failures
+- schemas.ts: Zod runtime schemas for all 4 Wave 0 agents matching the
+  TS interfaces in src/types/agents.ts
+- prompt-loader.ts: caches .md prompt files per-process
 
-Per the autonomous build authorization: "Maybe a list of decisions
-I made autonomously if you made non-trivial calls."
+src/lib/agents/wave0/
+- agent-00a-prompt.md + agent-00a.ts (Haiku, max_tokens 350)
+  Timeframe detector. Reads NinjaTrader header / EMA legend / TOS Mobile
+  header. Bar-density inference fallback capped at confidence 70. Abstain
+  on NON_TIME_BARS / OTHER / unreadable.
+
+- agent-00b-prompt.md + agent-00b.ts (Opus, max_tokens 600)
+  Chart state classifier. 9 states with eligible verdict-mode mappings.
+  state_at_right_edge field for cycling charts.
+
+- agent-00c-prompt.md + agent-00c.ts (Opus, max_tokens 500)
+  Setup variant classifier. VARIANT_A is V1 happy path; B/C/D/OTHER
+  route to SKIP_OUT_OF_SCOPE per architecture/01-pattern-taxonomy.md.
+  ABSTAIN_INPUT for unreadable charts.
+
+- agent-00d-prompt.md + agent-00d.ts (Sonnet, max_tokens 500)
+  Anticipation/wait-level. Cloud-as-level priority hierarchy. Time
+  window heuristic with 1.5-2x pessimism multiplier. Hard ATR distance
+  cap. Mandatory invalidation_price. Score < 55 abstains to SKIP.
+
+- index.ts: runWave0() orchestration
+  Pipeline: 00a -> if abstain bail (no Opus calls). Else 00b+00c
+  parallel. 00c=non-A -> out_of_scope (skip 00d). State actionable
+  (REJECTION_FIRING / PULLBACK_IN_PROGRESS) -> actionable_now (skip 00d).
+  State worth watching -> 00d -> wait_for_level or skip_no_edge based
+  on 00d score. RANGE_BOUND/INSUFFICIENT_HISTORY -> skip_no_edge direct.
+
+Tests:
+- 16 invoke harness tests (extractJson edge cases, mock SDK, error paths)
+- 7 agent-00a tests (timeframe enum, source enum, Haiku tier, max_tokens)
+- 8 agent-00b tests (all 9 states, recommended_verdict_modes validation)
+- 7 agent-00c tests (V1 vs V2 variants, ABSTAIN_INPUT, secondary_variants)
+- 8 agent-00d tests (window enum, layer enum, abstain, all directions)
+- 17 runWave0 orchestration tests (5 routing categories, cost discipline,
+  parallel 00b+00c, downstream agent skipping)
+
+121/121 vitest pass total. 134/134 pytest pass (no Python changes).
+TypeScript type-check clean. Python audit clean.
+
+All Wave 0 prompts use Anthropic prompt caching on the system prompt
+per Wave E spec section 13. Real API calls deferred until user provides
+real ANTHROPIC_API_KEY (currently placeholder per autonomous build auth).
