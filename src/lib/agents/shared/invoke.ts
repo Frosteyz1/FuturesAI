@@ -3,23 +3,26 @@
  *
  * Pattern for every Wave 0–D agent:
  *   1. Load system prompt from a .md file (cached)
- *   2. Build a multimodal user message: image + minimal text
- *   3. Call Anthropic API with prompt-cache enabled on the system prompt
+ *   2. Build a DispatchRequest with image + minimal text
+ *   3. Hand off to a dispatcher (SDK / FileQueue / Mock per env)
  *   4. Parse first JSON block from the response
  *   5. Validate via Zod schema
  *
- * If the model returns invalid JSON or fails Zod validation, this function
- * throws. Caller decides whether to abstain, retry, or fail.
- *
- * Per Wave E spec §13 + Agent 30 prompt-engineering deliverable:
- *   - System prompt is cacheable (stable across uploads → 90% input cost cut)
- *   - max_tokens capped at 500 per agent (per Agent 30 budget)
- *   - JSON-only output via prompt instruction; we parse defensively
+ * The dispatcher abstraction lets the same orchestration code run in:
+ *   - Production deploy (Vercel + ANTHROPIC_API_KEY) → SdkDispatcher
+ *   - Stage 4 backtest (Claude Code Max plan, no API spend) → FileQueueDispatcher
+ *   - Synthesis integration tests → MockDispatcher
+ * Per-agent unit tests mock at the agent-function level (not here), so the
+ * existing 350-test suite is unaffected by this refactor.
  */
+
+import { randomUUID } from 'node:crypto';
 
 import type { z } from 'zod';
 
-import { getAnthropic, MODELS, type ModelTier } from '@/lib/anthropic/client';
+import type { ModelTier } from '@/lib/anthropic/client';
+import { getDefaultDispatcher } from './dispatchers';
+import type { AgentDispatcher } from './dispatchers';
 
 export interface InvokeAgentArgs<T> {
   /** Model tier from MODELS constant. */
@@ -40,6 +43,19 @@ export interface InvokeAgentArgs<T> {
 
   /** Per-call max tokens override (default 500 per Agent 30 budget). */
   maxTokens?: number;
+
+  /**
+   * Override the env-selected dispatcher. Useful in tests where you want
+   * a specific MockDispatcher instance, or for the Stage 4 runner which
+   * passes its own pre-configured FileQueueDispatcher.
+   */
+  dispatcher?: AgentDispatcher;
+
+  /**
+   * Agent identifier for routing/audit (used by FileQueueDispatcher to
+   * tag request files, by MockDispatcher to look up fixtures).
+   */
+  agentId?: string;
 }
 
 export class AgentInvocationError extends Error {
@@ -100,56 +116,33 @@ export function extractJson(text: string): string {
  * Invoke an agent against a chart image and return validated output.
  */
 export async function invokeAgent<T>(args: InvokeAgentArgs<T>): Promise<T> {
-  const client = getAnthropic();
-  const model = MODELS[args.tier];
+  const dispatcher = args.dispatcher ?? getDefaultDispatcher();
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: args.maxTokens ?? 500,
-    system: [
-      {
-        type: 'text',
-        text: args.systemPrompt,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: args.imageMimeType,
-              data: args.imageBase64,
-            },
-          },
-          {
-            type: 'text',
-            text: args.userInstruction ?? 'Score this chart per your instructions. Output JSON only.',
-          },
-        ],
-      },
-    ],
+  const response = await dispatcher.dispatch({
+    requestId: randomUUID(),
+    agentId: args.agentId ?? 'unknown',
+    tier: args.tier,
+    systemPrompt: args.systemPrompt,
+    image: {
+      kind: 'base64',
+      data: args.imageBase64,
+      mimeType: args.imageMimeType,
+    },
+    userInstruction:
+      args.userInstruction ?? 'Score this chart per your instructions. Output JSON only.',
+    maxTokens: args.maxTokens ?? 500,
   });
-
-  // Concatenate all text blocks (newer SDKs may return multiple)
-  const textBlocks = response.content.filter(
-    (block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text',
-  );
-  const text = textBlocks.map((b) => b.text).join('\n');
 
   let parsed: unknown;
   try {
-    const jsonStr = extractJson(text);
+    const jsonStr = extractJson(response.rawText);
     parsed = JSON.parse(jsonStr);
   } catch (err) {
     if (err instanceof AgentInvocationError) throw err;
     throw new AgentInvocationError(
       `JSON parse failed: ${(err as Error).message}`,
       err,
-      text,
+      response.rawText,
     );
   }
 
@@ -158,7 +151,7 @@ export async function invokeAgent<T>(args: InvokeAgentArgs<T>): Promise<T> {
     throw new AgentInvocationError(
       `schema validation failed: ${result.error.message}`,
       result.error,
-      text,
+      response.rawText,
     );
   }
   return result.data;

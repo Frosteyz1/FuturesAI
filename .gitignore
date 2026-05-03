@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# agent dispatch queue (runtime artifacts only)
+.queue/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
