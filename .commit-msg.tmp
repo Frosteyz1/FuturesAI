@@ -1,61 +1,70 @@
-Step 4 (Wave B): 8 price-action agents (09-16)
+Step 4 (Wave C): 8 context agents (17-24)
 
-Tier mix: 09/10/11/12/13/15/16 = Sonnet 4.6; 14 = Opus 4.7 (CONDITIONAL veto)
+Tier mix: 17/21/24 = Sonnet; 18/20 = Haiku (deterministic-ish); 19/22/23 = Opus
 
-agent-09 Rejection Candle (Sonnet, 500 tokens, base composite contributor)
-- 8-pattern library tiered S/A/B by domain relevance for /NQ pullbacks
-- 5 quality grades (textbook -> absent), score modifiers for staleness,
-  volume readability, counter-macro direction, follow-through, chop cap
-- Calibration nudge: textbook should be <= 1 in 5 charts
+agent-17 HTF Alignment (Sonnet, 500 tokens)
+- Hard abstain when no HTF screenshot provided
+- Does NOT re-derive HTF from macro cloud (Agent 02/08 own that)
+- Score 0-14 = strong HTF disagreement (major downgrade signal)
 
-agent-10 Wick Analysis (Sonnet, 500 tokens, base composite contributor)
-- 4-component scoring: ATR-relative magnitude (40 pts), wick:body (25 pts),
-  direction/close-location (20 pts), cluster consistency (15 pts)
-- Tier multiplier (white 1.30 / yellow 1.15 / blue 1.00) applied AFTER sum
-- also_canonical_pattern flag dedupes with Agent 09 in Wave E
+agent-18 Time-of-Day Session (Haiku, 350 tokens)
+- 14-bucket session lookup table (cash_open, mid_morning, lunch_chop,
+  power_hour, globex_evening, asia_active, london, etc.)
+- Multiplier in [0.7, 1.1] consumed by Wave E section 3
+- Calibrated to general equity-index-futures consensus; needs
+  empirical refit after 30-50 /NQ trades
 
-agent-11 Momentum Decay (Sonnet, 500 tokens)
-- Pullback fatigue scorer (DISTINCT from Agent 06 trend fatigue)
-- 8 ranked heuristics; soft-veto floor at score 10-29
-- Multiplicative interaction with Agent 06 per Wave E spec section 5
+agent-19 Comparable Historical Setup (Opus, 800 tokens) - THE SPINE
+- Per Wave E spec section 1.3, abstain caps final composite at 60
+- Receives top-K corpus candidates pre-retrieved by SQL kNN as text
+  context (not separate images)
+- Hard threshold cosine 0.62; abstain when below
+- Reserves 1 of top-3 slots for high-similarity LOSER (per corpus
+  README: "looked-textbook but failed" is highest-priority category)
+- /NQ vs /ES instrument_caveat flag preserved with 0.92x penalty
 
-agent-12 Volume Pattern (Sonnet, 500 tokens)
-- Hard abstain when volume pane illegible
-- 6 volume labels (CONFIRMING -> FALSE_BREAK_RISK)
-- Session context (RTH/ETH/unknown) from chart timestamp
-- Generalizes beyond pullback per scope reframe
+agent-20 Setup Freshness (Haiku, 350 tokens, base composite contributor)
+- Owns full setup_freshness factor (15% of Wave E composite)
+- Count-based; Haiku-tractable
+- Cascade discount: prior winners do NOT count as staleness (protects
+  Image 05/11 multi-tap healthy trends)
 
-agent-13 Bar-Level Quality (Sonnet, 500 tokens, base composite contributor)
-- Crispness via 6 measurable components on last 20 bars (last 5 weighted 2x)
-- Coil blind spot called out (small bodies =/= indecisive in pre-breakout)
-- Sub-minute timeframe loosens doji thresholds 1.5x
+agent-21 Market Internals (Sonnet, 500 tokens)
+- VIX/ES/RTY/DXY/yields cross-asset correlation
+- Hard abstain on single-symbol uploads
+- Same-timeframe discipline; abstains within ±15 min FOMC
+  (correlations broken)
 
-agent-14 Failed-Bounce Detector (Opus, 700 tokens, CONDITIONAL VETO)
-- 5-signal signature with re-entry close as dominant signal
-- Need >= 2 of 5 signals before raising score above 70 (single-signal
-  vetoes too aggressive)
-- 4 disconfirmers cap score at 65
-- variant_d_promotable flag (V1 still routes SKIP; captured for v2 calibration)
-- Tilt interaction: Agent 23 confirmed_tilt suppresses promotion
+agent-22 News & Event Risk (Opus, 600 tokens, VETO YES)
+- 3-tier event taxonomy: T1 ±30min hard veto, T2 ±15min hard / ±60min
+  downgrade, T3 mild penalty
+- CPI/NFP open lockout: 9:30-10:00 ET auto-veto on release days
+- Cluster rule: 2 T2 events within 60 min compound to T1-equivalent
+- Powell live escalated to T1 (Q&A headline-parse risk)
+- Optional event_context input for calendar override
 
-agent-15 Trigger Bar Selection (Sonnet, 500 tokens)
-- DEFAULT entry: break of rejection bar high/low + 1 tick (matches
-  exemplars 09/10/11 annotated entries)
-- Cascade-aware (Patterns A/B/C); hard rule: cascade add at WORSE
-  price than original = NO_TRIGGER (revenge-trade scale-into-loss)
-- Sub-minute timeframes require multi-bar confirmation
+agent-23 Behavioral State (Opus, 600 tokens, CONDITIONAL VETO)
+- PRIVACY: never sees raw P&L. Categorical input only (session_color,
+  trade counts, cadence flags, R-bucket counts) per Agent 37 spec
+- Hard veto on confirmed_tilt + size_escalation OR cadence-after-loss
+  <5min
+- Soft veto on probable_tilt with chart-side <75
+- 4hr break full reset; 60min break downgrades tilt one band
+- Boredom-trading blind spot called out (Wave E composite check, not
+  this single agent)
+- Hard-veto override UX recommendation: 60s wait + typed reason
 
-agent-16 Stop & Target Geometry (Sonnet, 500 tokens)
-- R:R floor agent. Variant-specific stop conventions; 5-priority target
-  hierarchy (prior swing > opposing cloud > measured move > round
-  number > fixed-R)
-- forces_downgrade=true on R:R < 2.0; capped at 30 below 1.0R
-- Tier multipliers: T1 thresholds x1.2, T3 x0.85
-- Slippage fudge 1-2 ticks conservative
+agent-24 Volatility Regime (Sonnet, 500 tokens)
+- 5 regimes (DEAD/LOW/NORMAL/ELEVATED/EXTREME) with cloud-band
+  thickness as primary vision-tractable signal (no exact ATR needed)
+- Pattern × regime multiplier matrix; default Pullback column for V1
+- DEAD forwards to Agent 25 (Disqualifier) as "no edge available"
+- Backward-looking by construction; Agent 22 owns forward-event veto
 
-Tests: 41 new tests across 8 agents (5 per agent average) covering
-happy paths, all enum values, schema validation failures, abstain
-handling. Verifies tier and max_tokens per agent.
+Tests: 42 new tests across 8 agents covering enum exhaustiveness,
+schema validation, abstain handling, optional-context-input wiring
+(Agents 19/22/23 have additional input parameters), and tier/
+max_tokens verification.
 
-208 vitest passing total (167 from Wave A + 41 new).
-134 pytest still passing. TypeScript type-check clean.
+251 vitest passing total (208 from Wave B + 43 new). Pytest 134
+unchanged. TypeScript type-check clean.
