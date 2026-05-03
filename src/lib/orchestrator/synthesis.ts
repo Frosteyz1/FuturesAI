@@ -73,11 +73,13 @@ export const ALIGNMENT_CAPS = {
 
 /* ── NotImplemented sentinel ─────────────────────────────────────── */
 
+/* v8 ignore start - stub class, replaced when implementations land */
 class NotImplemented extends Error {
   constructor(step: string) {
     super(`Wave E synthesis step not implemented: ${step}`);
   }
 }
+/* v8 ignore stop */
 
 /* ── Step 1 — Pre-base modification (Agent 14 → 09) ──────────────── */
 
@@ -102,6 +104,7 @@ export function applyFailedBounceDowngrade(
 
 /* ── Step 2 — Base composite ─────────────────────────────────────── */
 
+/* v8 ignore start - stub, implemented in Step 4+ once base agents wire up */
 export function computeBaseComposite(
   agent02: Agent02Output | null,
   agent04: Agent04Output | null,
@@ -129,6 +132,7 @@ export function computeBaseComposite(
   void agent20;
   throw new NotImplemented('computeBaseComposite');
 }
+/* v8 ignore stop */
 
 /* ── Step 3 — Alignment-gate cap ─────────────────────────────────── */
 
@@ -224,6 +228,7 @@ export function applyNqDisclaimerCap(
 
 /* ── Step 7 — Initial verdict-mode mapping ───────────────────────── */
 
+/* v8 ignore start - stubs, implemented in Step 4+ */
 export function mapToVerdict(
   finalScore: number,
   agent00bState: string | null,
@@ -280,6 +285,7 @@ export async function renderVerdictCard(
   void input;
   throw new NotImplemented('renderVerdictCard');
 }
+/* v8 ignore stop */
 
 /* ── Agreement-banner computation (UX layer) ─────────────────────── */
 
