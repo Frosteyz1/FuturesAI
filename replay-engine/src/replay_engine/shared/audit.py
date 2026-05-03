@@ -48,6 +48,7 @@ FORBIDDEN_PATTERNS: list[tuple[str, str, str]] = [
 # Files exempt from specific patterns
 EXEMPT_FILES = {
     "shared/timeframe.py",  # owns the frame_df materialization
+    "shared/audit.py",       # the linter itself names the patterns it scans for
     "tests/",                # test fixtures may use raw filters
 }
 
