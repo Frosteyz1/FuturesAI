@@ -74,6 +74,11 @@ def audit_file(path: Path) -> list[AuditFinding]:
         if stripped.startswith("#"):
             continue
 
+        # Inline suppression: line ending in `# audit-ok: <reason>` is exempt
+        # (`reason` is required and is documented inline at the call site).
+        if re.search(r"#\s*audit-ok:\s*\S", line):
+            continue
+
         for pattern_re, description, severity in FORBIDDEN_PATTERNS:
             if re.search(pattern_re, line):
                 if is_exempt(path, pattern_re):

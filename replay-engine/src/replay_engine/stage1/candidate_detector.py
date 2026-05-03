@@ -289,7 +289,7 @@ def add_random_samples(
     output: list[RawCandidate] = []
 
     for i in range(WARMUP_BARS, len(full_df), every_n_bars):
-        t_now = full_df["ts_utc"].iloc[i]
+        t_now = full_df["ts_utc"].iloc[i]  # audit-ok: timestamp column read only — IS t_now itself
         frame = materialize_frame(full_df, t_now)
         if len(frame) < WARMUP_BARS:
             continue
