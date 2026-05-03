@@ -1,55 +1,14 @@
-Stage 3: dynamic stop + outcome labeler with 2.5R/3R/4R buckets
+Add AUTONOMOUS-DECISIONS.md session log
 
-replay-engine/src/replay_engine/stage3/dynamic_stop.py
-- Per spec section 6.2: stop is dynamic per setup
-  - Long: more conservative of swing_low or deepest_cloud edge
-  - Short: inverse (swing_high or deepest_cloud upper edge)
-  - Floor 8pt, ceiling 18pt, default 12pt fallback
-- Pivot detection: bar is pivot if low/high beats neighbors at 2 bars
-  on each side, scanning last 20 bars
-- StopLogic enum recorded for audit
-- compute_dynamic_stop returns DynamicStop with raw_swing_distance
-  and raw_cloud_distance for explainability
+Documents the 12 non-trivial implementation decisions made during the
+2026-05-03 autonomous build session. Includes:
+- 7 commits chronological list
+- Final test counts (134 pytest + 54 vitest, audit clean)
+- 12 specific autonomous calls with rationale
+- What's halted (true blockers)
+- What's pending downstream work
+- Files added/modified summary
+- Recommended next user actions
 
-replay-engine/src/replay_engine/stage3/outcome_labeler.py
-- Per spec section 6.3: walk-forward simulation with R-bucket tracking
-- Walks bar-by-bar through OHLCV-1s data; high/low captures intra-bar
-  wick action that hits stop or target (no full Trades schema needed)
-- Tracks all three R-buckets in parallel (2.5R / 3R / 4R) plus
-  max_r_achieved
-- Primary outcome semantics:
-  W  = r_to_2_5R hit (regardless of post-2.5R behavior)
-  L  = stop hit before 2.5R
-  BE = max_hold reached without resolution
-  null = forward data exhausted before max_hold AND no resolution
-- MFE/MAE in R-relative terms (peak/trough divided by dynamic stop)
-
-tests/test_dynamic_stop.py - 14 tests
-- Spec invariants (8/12/18 constants)
-- Swing low/high pivot detection (clear pivot, no pivot, short data,
-  most-recent-pivot priority)
-- Cloud edge selection (long uses lower EMA, short uses upper)
-- Long picks swing when more conservative; long picks cloud when
-  more conservative
-- Floor clamp at 8pt, ceiling clamp at 18pt
-- Default 12pt fallback when no structural signal
-- Short direction inverse
-- Cloud on wrong side ignored (falls back to swing or default)
-
-tests/test_outcome_labeler.py - 11 tests
-- R bucket constants
-- Stop hit returns L (with r_multiple = -1.0)
-- 2.5R hit returns W; 3R runner; 4R full runner
-- Time-stop returns BE when neither hit within 60s
-- Short direction inverse (2.5R hit, stop hit)
-- Empty forward data returns null outcome
-- Insufficient forward data (ran out before max_hold) returns null
-- MFE/MAE tracking
-- Zero-stop validation raises
-- Event-confounded flag passthrough
-
-134 pytest pass total. Audit clean. 54 vitest still pass.
-
-Stage 3 RUN remains halted until user confirms Databento OHLCV-1s
-historical tier (Stage 1 prerequisite). Code is ready to consume
-that data shape when entitlement confirmed.
+Per the autonomous build authorization: "Maybe a list of decisions
+I made autonomously if you made non-trivial calls."
