@@ -1,70 +1,61 @@
-Step 4 (Wave A): 8 structural agents (01-08), all Opus tier
+Step 4 (Wave B): 8 price-action agents (09-16)
 
-shared/schemas.ts expanded with Zod runtime schemas for all 44 agents
-(Wave 0 + 40 specialists across A/B/C/D). Mirrors src/types/agents.ts
-TypeScript interfaces, with z.literal pinning agent_id per agent.
+Tier mix: 09/10/11/12/13/15/16 = Sonnet 4.6; 14 = Opus 4.7 (CONDITIONAL veto)
 
-Wave A specialists — base composite owners + structural readers:
+agent-09 Rejection Candle (Sonnet, 500 tokens, base composite contributor)
+- 8-pattern library tiered S/A/B by domain relevance for /NQ pullbacks
+- 5 quality grades (textbook -> absent), score modifiers for staleness,
+  volume readability, counter-macro direction, follow-through, chop cap
+- Calibration nudge: textbook should be <= 1 in 5 charts
 
-agent-01 Prior Trend Strength (Opus, 600 tokens)
-- 8-state taxonomy: strong_young / strong_mature / healthy_ongoing /
-  trend_forming / weak_decaying / chop_disguised / no_trend /
-  parabolic_exhaustion. 5-signature parabolic catalogue caps score at 50.
-- Variant B regime-establishment routes to trend_forming (45-59).
+agent-10 Wick Analysis (Sonnet, 500 tokens, base composite contributor)
+- 4-component scoring: ATR-relative magnitude (40 pts), wick:body (25 pts),
+  direction/close-location (20 pts), cluster consistency (15 pts)
+- Tier multiplier (white 1.30 / yellow 1.15 / blue 1.00) applied AFTER sum
+- also_canonical_pattern flag dedupes with Agent 09 in Wave E
 
-agent-02 EMA Cloud Geometry (Opus, 700 tokens)
-- HEAVIEST base composite contributor — 39 percent of Wave E score
-  (cloud compression 25 + EMA acceleration 14 via 70/30 split).
-- Per-pair slope numeric estimates for blue/yellow/white plus regime_label
-  from 13-category visual library. Macro_visible flag handles TOS mobile
-  cropping. Direction-bias-via-weighted-slope-sum.
+agent-11 Momentum Decay (Sonnet, 500 tokens)
+- Pullback fatigue scorer (DISTINCT from Agent 06 trend fatigue)
+- 8 ranked heuristics; soft-veto floor at score 10-29
+- Multiplicative interaction with Agent 06 per Wave E spec section 5
 
-agent-03 Pullback Geometry (Opus, 600 tokens)
-- Variant A only; abstains on B/C/D. 6-signature shape taxonomy.
-- depth_tier_multiplier (0.50-1.05) consumed by Wave E for tier interaction.
-- through_macro forces abstain (structural break).
+agent-12 Volume Pattern (Sonnet, 500 tokens)
+- Hard abstain when volume pane illegible
+- 6 volume labels (CONFIRMING -> FALSE_BREAK_RISK)
+- Session context (RTH/ETH/unknown) from chart timestamp
+- Generalizes beyond pullback per scope reframe
 
-agent-04 Cloud Penetration (Opus, 700 tokens)
-- Routing label tier (1/2/3/null) drives downstream tier-specific rubrics.
-- 6 penetration classes, 5-band residence-time tier-downgrade logic.
-- Wick:body ratio with >=2.0 = gold. Multi-touch tracking with
-  +5/+10/-10 score adjustments. tier_provisional flag for sparse
-  Tier 3 corpus evidence.
+agent-13 Bar-Level Quality (Sonnet, 500 tokens, base composite contributor)
+- Crispness via 6 measurable components on last 20 bars (last 5 weighted 2x)
+- Coil blind spot called out (small bodies =/= indecisive in pre-breakout)
+- Sub-minute timeframe loosens doji thresholds 1.5x
 
-agent-05 Market Structure HH/HL or LH/LL (Opus, 600 tokens)
-- Pivots are primary, EMAs derived. 6-state intactness taxonomy.
-- Magnitude filter at 1x blue cloud width. EMA-vs-structure conflict
-  resolution rules. Range mode for non-trending charts.
+agent-14 Failed-Bounce Detector (Opus, 700 tokens, CONDITIONAL VETO)
+- 5-signal signature with re-entry close as dominant signal
+- Need >= 2 of 5 signals before raising score above 70 (single-signal
+  vetoes too aggressive)
+- 4 disconfirmers cap score at 65
+- variant_d_promotable flag (V1 still routes SKIP; captured for v2 calibration)
+- Tilt interaction: Agent 23 confirmed_tilt suppresses promotion
 
-agent-06 Trend Maturity Exhaustion (Opus, 600 tokens)
-- Score INVERTS with maturity (higher = more mature). 7-state taxonomy
-  with established (41-60) as the entry sweet spot.
-- 5-signature visual catalogue; >=2 firing forces actively_exhausting.
-- consider_reversal=true at actively_exhausting/blow_off.
-- Naive sum with Agent 11 forbidden per Wave E spec section 5
-  (multiplicative interaction).
+agent-15 Trigger Bar Selection (Sonnet, 500 tokens)
+- DEFAULT entry: break of rejection bar high/low + 1 tick (matches
+  exemplars 09/10/11 annotated entries)
+- Cascade-aware (Patterns A/B/C); hard rule: cascade add at WORSE
+  price than original = NO_TRIGGER (revenge-trade scale-into-loss)
+- Sub-minute timeframes require multi-bar confirmation
 
-agent-07 Choppiness Regime (Opus, 700 tokens, VETO YES)
-- 7 regime labels. Veto fires on label=CHOP AND confidence>=75 AND
-  not abstain. Sub-30s timeframes escalate to 85.
-- veto_overridable flag for soft-chop/HTF-context/event-window cases.
-- Cost-asymmetry argument: false-pass is 3-4x worse than false-veto.
-- Right-edge weighting 2x for transition-from-chop charts.
-- News interaction: Agent 22 event-window flag down-weights chop reading.
+agent-16 Stop & Target Geometry (Sonnet, 500 tokens)
+- R:R floor agent. Variant-specific stop conventions; 5-priority target
+  hierarchy (prior swing > opposing cloud > measured move > round
+  number > fixed-R)
+- forces_downgrade=true on R:R < 2.0; capped at 30 below 1.0R
+- Tier multipliers: T1 thresholds x1.2, T3 x0.85
+- Slippage fudge 1-2 ticks conservative
 
-agent-08 Multi-EMA Confluence (Opus, 600 tokens)
-- ALIGNMENT-GATE OWNER. alignment_against drives Wave E hard cap:
-  none -> no cap; short_structural OR macro -> cap 55;
-  both_macro_and_short_structural -> cap 40; all_tangled -> cap 50
-  with verdict-mode downgrade.
-- tier_backdrop (0/1/2/3) decoupled from Agent 04 tier (which-cloud-
-  touched vs regime-quality-supporting).
-- Which-two-of-three logic: blue dissent forgivable, macro dissent
-  most concerning.
+Tests: 41 new tests across 8 agents (5 per agent average) covering
+happy paths, all enum values, schema validation failures, abstain
+handling. Verifies tier and max_tokens per agent.
 
-Tests: 46 new tests across 8 agents covering happy paths, all enum
-values, schema validation failures, abstain handling, tier-specific
-behavior. Verifies Opus model selection and per-agent max_tokens.
-
-167 vitest passing total (121 from Step 3 + 46 new). 134 pytest still
-passing. TypeScript type-check clean.
+208 vitest passing total (167 from Wave A + 41 new).
+134 pytest still passing. TypeScript type-check clean.
