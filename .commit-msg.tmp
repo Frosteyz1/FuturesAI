@@ -1,34 +1,29 @@
-scripts/run-smoke-test.ts: FileQueue driver for chart-exemplar 09
+Fix metrics-wrapper bug: setDefaultDispatcher() for smoke/backtest injection
+
+src/lib/agents/shared/dispatchers/index.ts
+- Add setDefaultDispatcher(d | null) — overrides the cached default
+  with a specific dispatcher instance. Pass null to revert to env-based
+  selection.
+- Sets cachedMode to '__override__' so subsequent env-based queries
+  rebuild the dispatcher only when explicitly reset.
 
 scripts/run-smoke-test.ts
-- Reads chart-exemplar PNG from disk -> base64
-- Configures FileQueueDispatcher (1s poll, 30min per-dispatch timeout,
-  cleanup disabled for audit)
-- Wraps dispatch() with timing capture for per-agent metrics
-- Calls scoreChart() with labeledNqCorpusCount=0 (active /NQ disclaimer
-  + score-cap-85)
-- On completion writes the full ScoringRun + smoke-test metrics to
-  .queue/runs/{runId}.json
-- Prints verdict, direction, variant, tier, final score, action params
-  (entry/stop/target/R), total dispatches, wall clock, avg per-dispatch
+- Wrap FileQueueDispatcher.dispatch with timing + token capture
+- Call setDefaultDispatcher(wrapped) BEFORE calling scoreChart() so the
+  orchestrator's getDefaultDispatcher() returns THIS wrapped instance
+  (not a fresh one from env vars).
+- Capture per-dispatch usage tokens (input/output/cached) from
+  DispatchResponse.usage
+- Print summary: total dispatches, wall clock, avg per-dispatch,
+  total tokens (in/out/cached)
 
-Default exemplar = 09 (NinjaTrader 20-second blue cloud bounce, the
-canonical Tier 1 winner). Override with --exemplar=NN.
+Bug context (from smoke test 1 on exemplar 09):
+The previous run reported "Total dispatches: 0" because the local
+wrapped FileQueueDispatcher was never injected as the cached default.
+scoreChart() ran getDefaultDispatcher() which created its own (un-wrapped)
+FileQueueDispatcher per env vars, so timing capture never fired even
+though the actual dispatches succeeded. Real count was 5 dispatches.
 
-scripts/fulfill-queue-request.md
-- Protocol doc for Claude Code (session driver) describing how to
-  fulfill .queue/requests/{id}.json files via Task tool.
-- Lists the request schema, the response schema, the recommended
-  sub-agent prompt template, and parallelism guidance (Wave 0 + Wave
-  A+B+C+D can be fanned out as concurrent Task invocations).
+After this fix: timing wrapper actually captures each dispatch.
 
-Devdeps added:
-- tsx 4.21 — runs TypeScript scripts directly (no separate build step)
-- tsconfig-paths 4.2 — resolves @/lib/* aliases for tsx-run scripts
-
-.gitignore: .queue/ already excluded as a runtime artifact dir.
-
-Next: live smoke test execution against chart-exemplar 09. Claude Code
-will start the script (background), fulfill ~28 Task dispatches, capture
-metrics. Report + halt for user review before authorizing 450-chart
-pilot.
+368 vitest passing. TypeScript type-check clean.

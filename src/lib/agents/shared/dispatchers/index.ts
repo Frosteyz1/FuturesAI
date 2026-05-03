@@ -67,3 +67,18 @@ export function _resetDispatcherCache(): void {
   cachedDefault = null;
   cachedMode = null;
 }
+
+/**
+ * Override the cached default dispatcher.
+ *
+ * Used by the smoke-test runner and Stage 4 batch runner to inject a
+ * pre-configured FileQueueDispatcher (e.g., wrapped with timing capture)
+ * so that scoreChart()'s internal getDefaultDispatcher() calls return
+ * THIS specific instance rather than creating a fresh one from env vars.
+ *
+ * Pass null to revert to env-based selection on next getDefaultDispatcher().
+ */
+export function setDefaultDispatcher(dispatcher: AgentDispatcher | null): void {
+  cachedDefault = dispatcher;
+  cachedMode = dispatcher === null ? null : '__override__';
+}

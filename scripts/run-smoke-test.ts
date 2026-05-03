@@ -32,6 +32,7 @@ import { scoreChart } from '../src/lib/orchestrator/index.js';
 import {
   FileQueueDispatcher,
   _resetDispatcherCache,
+  setDefaultDispatcher,
 } from '../src/lib/agents/shared/dispatchers/index.js';
 
 interface CliArgs {
@@ -96,7 +97,7 @@ async function main(): Promise<void> {
   process.env.AGENT_QUEUE_DIR = queueDir;
   _resetDispatcherCache();
 
-  // Pass the dispatcher explicitly so we keep a handle for metrics
+  // Build the dispatcher we'll use throughout the run
   const dispatcher = new FileQueueDispatcher({
     queueDir,
     pollIntervalMs: 1000,        // 1s — Claude Code session time matters more than CPU
@@ -105,17 +106,37 @@ async function main(): Promise<void> {
   });
 
   // ── 3. Track dispatch metrics ───────────────────────────────────────
-  // Wrap dispatch() to capture timing per request
-  const dispatchTimings: Array<{ requestId: string; agentId: string; ms: number }> = [];
+  // Wrap dispatch() to capture timing + token usage per request
+  const dispatchTimings: Array<{
+    requestId: string;
+    agentId: string;
+    ms: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedTokens?: number;
+  }> = [];
   const originalDispatch = dispatcher.dispatch.bind(dispatcher);
   dispatcher.dispatch = async (req) => {
     const start = Date.now();
     const result = await originalDispatch(req);
     const ms = Date.now() - start;
-    dispatchTimings.push({ requestId: req.requestId, agentId: req.agentId, ms });
+    dispatchTimings.push({
+      requestId: req.requestId,
+      agentId: req.agentId,
+      ms,
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
+      cachedTokens: result.usage?.cachedTokens,
+    });
     console.log(`  ✓ ${req.agentId.padEnd(6)} (${(ms / 1000).toFixed(1)}s)  → ${req.requestId.slice(0, 8)}`);
     return result;
   };
+
+  // CRITICAL: inject the wrapped dispatcher as the cached default so
+  // scoreChart()'s getDefaultDispatcher() calls return THIS instance
+  // (otherwise it creates a fresh FileQueueDispatcher per env vars and
+  // our timing wrapper never gets invoked).
+  setDefaultDispatcher(dispatcher);
 
   // ── 4. Run scoreChart() ──────────────────────────────────────────────
   console.log('\n▶ Calling scoreChart() — Claude Code will start seeing request files now\n');
@@ -182,7 +203,14 @@ async function main(): Promise<void> {
   console.log('───────────────────────────────────────────────────────────');
   console.log(`  Total dispatches : ${dispatchTimings.length}`);
   console.log(`  Wall clock       : ${(wallClockMs / 1000).toFixed(1)}s`);
-  console.log(`  Avg per dispatch : ${(dispatchTimings.reduce((a, b) => a + b.ms, 0) / dispatchTimings.length / 1000).toFixed(1)}s`);
+  if (dispatchTimings.length > 0) {
+    const avgMs = dispatchTimings.reduce((a, b) => a + b.ms, 0) / dispatchTimings.length;
+    console.log(`  Avg per dispatch : ${(avgMs / 1000).toFixed(1)}s`);
+    const totalIn = dispatchTimings.reduce((a, b) => a + (b.inputTokens ?? 0), 0);
+    const totalOut = dispatchTimings.reduce((a, b) => a + (b.outputTokens ?? 0), 0);
+    const totalCached = dispatchTimings.reduce((a, b) => a + (b.cachedTokens ?? 0), 0);
+    console.log(`  Total tokens     : in=${totalIn.toLocaleString()} out=${totalOut.toLocaleString()} cached=${totalCached.toLocaleString()}`);
+  }
   console.log(`  Run JSON         : ${runFilePath}`);
   console.log('═══════════════════════════════════════════════════════════\n');
 }
