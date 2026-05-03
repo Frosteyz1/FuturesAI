@@ -1,11 +1,6 @@
 /**
  * Unit tests for Wave E synthesis pure functions.
  * Source contract: architecture/02-wave-e-synthesis-spec.md
- *
- * Note on test scope: only the pure functions in synthesis.ts are tested
- * here. The async functions that throw NotImplemented (computeBaseComposite,
- * mapToVerdict, runVetoCascade, devilsAdvocatePass, renderVerdictCard) are
- * stubs — they get tests once they're implemented in Step 4+ of the build.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -14,23 +9,39 @@ import {
   ALIGNMENT_CAPS,
   applyAlignmentCap,
   applyContextMultipliers,
+  applyDevilsAdvocate,
   applyFailedBounceDowngrade,
   applyNqDisclaimerCap,
   applySkepticism,
-  CONTEXT_MULTIPLIER_BOUNDS,
+  classifyDevilsAdvocate,
   computeAgreementBanner,
+  computeBaseComposite,
+  CONTEXT_MULTIPLIER_BOUNDS,
   FACTOR_WEIGHTS,
+  mapToVerdict,
+  runVetoCascade,
   SKEPTICISM_RANGE,
   SUB_WEIGHTS,
 } from './synthesis';
 import type {
+  Agent02Output,
+  Agent04Output,
+  Agent07Output,
   Agent08Output,
   Agent09Output,
+  Agent10Output,
+  Agent13Output,
   Agent14Output,
+  Agent16Output,
   Agent17Output,
   Agent18Output,
+  Agent19Output,
+  Agent20Output,
   Agent21Output,
+  Agent22Output,
+  Agent23Output,
   Agent24Output,
+  Agent25Output,
   Agent26Output,
 } from '@/types/agents';
 import type { BaseComposite, CappedScore, ModulatedScore, ScoringInput } from '@/types/synthesis';
@@ -561,5 +572,315 @@ describe('computeAgreementBanner', () => {
   it('returns undefined when user skips and system also skips (alignment, no banner)', () => {
     // user prior=skip + system SKIP → no banner per §12 (only highlight is take vs skip)
     expect(computeAgreementBanner(userPriorSkip, 'none', 'SKIP')).toBeUndefined();
+  });
+});
+
+/* ── computeBaseComposite ───────────────────────────────────────────── */
+
+function a02(score: number | null = 80): Agent02Output {
+  return {
+    agent_id: '02', score, confidence: 80, abstain: score === null,
+    evidence: [], regime_label: 'x', direction_bias: 'long',
+    per_pair_slope: { blue: 0, yellow: 0, white: 0 }, macro_visible: true,
+  };
+}
+function a04(score: number | null = 80): Agent04Output {
+  return {
+    agent_id: '04', score, confidence: 80, abstain: score === null,
+    evidence: [], tier: 1, tier_provisional: false, cloud_touched: 'blue',
+    penetration_class: 'shallow_body_entry', residence_bars: 1,
+    rejection_wick_to_body_ratio: 2, multi_touch_count: 1,
+  };
+}
+function a08(score: number | null = 80): Agent08Output {
+  return {
+    agent_id: '08', score, confidence: 80, abstain: score === null,
+    evidence: [], alignment_against: 'none', direction_bias: 'long', tier_backdrop: 3,
+  };
+}
+function a09(score: number | null = 80): Agent09Output {
+  return {
+    agent_id: '09', score, confidence: 80, abstain: score === null,
+    evidence: [], pattern: 'hammer', quality: 'good', bars_since_pattern: 1,
+  };
+}
+function a10(score: number | null = 80): Agent10Output {
+  return {
+    agent_id: '10', score, confidence: 80, abstain: score === null,
+    evidence: [], also_canonical_pattern: false,
+    wick_to_body_ratio: 2, atr_relative_magnitude: 1.5,
+  };
+}
+function a13(score: number | null = 80): Agent13Output {
+  return {
+    agent_id: '13', score, confidence: 80, abstain: score === null, evidence: [],
+  };
+}
+function a19(score: number | null = 80): Agent19Output {
+  return {
+    agent_id: '19', score, confidence: 80, abstain: score === null,
+    evidence: [], top_matches: [],
+    outcome_distribution: { wins: 0, losses: 0, be: 0, no_trade: 0 },
+  };
+}
+function a20(score: number | null = 80): Agent20Output {
+  return {
+    agent_id: '20', score, confidence: 80, abstain: score === null,
+    evidence: [], touches_relevant_cloud: 0, bars_since_last_touch: null,
+    recent_failed_same_direction: 0, recent_won_same_direction: 0,
+    cloud_broken_through_in_window: false,
+  };
+}
+
+describe('computeBaseComposite', () => {
+  it('all agents at 80 → composite ≈ 80 (weighted sum)', () => {
+    const r = computeBaseComposite(a02(80), a04(80), a08(80), a09(80), a10(80), a13(80), a19(80), a20(80));
+    expect(r.score).toBeCloseTo(80, 1);
+    expect(r.abstainCount).toBe(0);
+    expect(r.abstainPenalty).toBe(0);
+  });
+
+  it('weighted sum reflects §0.6 weights', () => {
+    // Score Agent 02 at 100 (39% of base), all others at 0
+    const r = computeBaseComposite(a02(100), a04(0), a08(0), a09(0), a10(0), a13(0), a19(0), a20(0));
+    // Expected: 100 * (0.25 + 0.20*0.70) = 100 * 0.39 = 39
+    expect(r.score).toBeCloseTo(39, 1);
+  });
+
+  it('one abstention → +5 abstain_penalty, weight redistributed', () => {
+    const r = computeBaseComposite(a02(80), a04(80), a08(80), a09(null), a10(80), a13(80), a19(80), a20(80));
+    expect(r.abstainCount).toBe(1);
+    expect(r.abstainPenalty).toBe(5);
+    // Surviving agents should still produce a sensible composite
+    expect(r.score).toBeGreaterThan(70);
+  });
+
+  it('two abstentions → +10 abstain_penalty', () => {
+    const r = computeBaseComposite(a02(80), a04(80), a08(80), a09(null), a10(null), a13(80), a19(80), a20(80));
+    expect(r.abstainCount).toBe(2);
+    expect(r.abstainPenalty).toBe(10);
+  });
+
+  it('three+ abstentions → max penalty (caller forces SKIP)', () => {
+    const r = computeBaseComposite(a02(null), a04(null), a08(null), a09(80), a10(80), a13(80), a19(80), a20(80));
+    expect(r.abstainCount).toBe(3);
+    expect(r.abstainPenalty).toBe(50);
+  });
+
+  it('all-null → returns 0 with max penalty', () => {
+    const r = computeBaseComposite(null, null, null, null, null, null, null, null);
+    expect(r.score).toBe(0);
+    expect(r.abstainPenalty).toBe(50);
+  });
+
+  it('contributions array reflects per-slot accounting', () => {
+    const r = computeBaseComposite(a02(80), a04(80), a08(80), a09(80), a10(80), a13(80), a19(80), a20(80));
+    // Should have 9 contribution slots (some agents fill 2)
+    expect(r.contributions).toHaveLength(9);
+  });
+
+  it('clamps result to [0, 100]', () => {
+    const r = computeBaseComposite(a02(100), a04(100), a08(100), a09(100), a10(100), a13(100), a19(100), a20(100));
+    expect(r.score).toBeLessThanOrEqual(100);
+  });
+});
+
+/* ── mapToVerdict ───────────────────────────────────────────────────── */
+
+describe('mapToVerdict', () => {
+  it('non-Variant-A → SKIP_OUT_OF_SCOPE', () => {
+    const r = mapToVerdict(85, 'REJECTION_FIRING', false, false);
+    expect(r.verdict).toBe('SKIP_OUT_OF_SCOPE');
+  });
+
+  it('score >= 80 + Variant A + actionable state → TAKE_NOW', () => {
+    const r = mapToVerdict(85, 'REJECTION_FIRING', true, false);
+    expect(r.verdict).toBe('TAKE_NOW');
+  });
+
+  it('score 60-79 → WAIT_FOR_LEVEL', () => {
+    const r = mapToVerdict(70, 'REJECTION_FIRING', true, false);
+    expect(r.verdict).toBe('WAIT_FOR_LEVEL');
+  });
+
+  it('score 40-59 in TREND_FORMING → SETUP_FORMING', () => {
+    const r = mapToVerdict(50, 'TREND_FORMING', true, false);
+    expect(r.verdict).toBe('SETUP_FORMING');
+  });
+
+  it('score 40-59 in REJECTION_FIRING → WAIT_FOR_LEVEL', () => {
+    const r = mapToVerdict(50, 'REJECTION_FIRING', true, false);
+    expect(r.verdict).toBe('WAIT_FOR_LEVEL');
+  });
+
+  it('score < 40 → SKIP', () => {
+    const r = mapToVerdict(30, 'REJECTION_FIRING', true, false);
+    expect(r.verdict).toBe('SKIP');
+  });
+
+  it('RANGE_BOUND → always SKIP regardless of score', () => {
+    const r = mapToVerdict(95, 'RANGE_BOUND', true, false);
+    expect(r.verdict).toBe('SKIP');
+  });
+
+  it('TREND_ESTABLISHED_RUNNING + high score → WAIT_FOR_LEVEL', () => {
+    const r = mapToVerdict(85, 'TREND_ESTABLISHED_RUNNING', true, false);
+    expect(r.verdict).toBe('WAIT_FOR_LEVEL');
+  });
+
+  it('Agent 19 abstained → capAppliedFromSpine flag set', () => {
+    const r = mapToVerdict(85, 'REJECTION_FIRING', true, true);
+    expect(r.capAppliedFromSpine).toBe(true);
+  });
+});
+
+/* ── runVetoCascade ─────────────────────────────────────────────────── */
+
+function vetoInput(overrides: Partial<Parameters<typeof runVetoCascade>[0]> = {}): Parameters<typeof runVetoCascade>[0] {
+  return {
+    agent38: { passed: true },
+    agent22: { agent_id: '22', score: 90, confidence: 90, abstain: false, evidence: [], event_tier: null, pre_window_min: null, post_window_min: null, veto_fires: false } as Agent22Output,
+    agent23: { agent_id: '23', score: 80, confidence: 80, abstain: false, evidence: [], state: 'fresh', flags_firing: [], veto_recommendation: 'none' } as Agent23Output,
+    agent07: { agent_id: '07', score: 25, confidence: 80, abstain: false, evidence: [], label: 'STRONG_TREND', veto_overridable: true } as Agent07Output,
+    agent14: { agent_id: '14', score: 25, confidence: 70, abstain: false, evidence: [], downgrade_factor: 0, variant_d_promotable: false } as Agent14Output,
+    agent25: { agent_id: '25', score: 100, confidence: 80, abstain: false, evidence: [], veto_label: 'none', veto_severity: 'none' } as Agent25Output,
+    agent16: { agent_id: '16', score: 80, confidence: 80, abstain: false, evidence: [], stop_price: 100, target_price: 110, achievable_r: 3, forces_downgrade: false } as Agent16Output,
+    timeframe: '1m',
+    ...overrides,
+  };
+}
+
+describe('runVetoCascade', () => {
+  it('all clean → no veto fired', () => {
+    const r = runVetoCascade(vetoInput());
+    expect(r.fired).toBe(false);
+    expect(r.vetoSource).toBeNull();
+  });
+
+  it('Agent 38 input fail → input_quality veto wins priority', () => {
+    const r = runVetoCascade(vetoInput({
+      agent38: { passed: false, degradation_flags: ['low_resolution'] },
+      agent22: { agent_id: '22', score: 0, confidence: 90, abstain: false, evidence: [], event_tier: 1, pre_window_min: 25, post_window_min: null, veto_fires: true } as Agent22Output,
+    }));
+    expect(r.vetoSource).toBe('input_quality');
+  });
+
+  it('Agent 22 news veto fires when veto_fires=true', () => {
+    const r = runVetoCascade(vetoInput({
+      agent22: { agent_id: '22', score: 10, confidence: 90, abstain: false, evidence: ['FOMC in 25min'], event_tier: 1, pre_window_min: 25, post_window_min: null, veto_fires: true } as Agent22Output,
+    }));
+    expect(r.fired).toBe(true);
+    expect(r.vetoSource).toBe('news_event');
+  });
+
+  it('Agent 23 hard veto fires on confirmed_tilt', () => {
+    const r = runVetoCascade(vetoInput({
+      agent23: { agent_id: '23', score: 15, confidence: 85, abstain: false, evidence: [], state: 'confirmed_tilt', flags_firing: ['size_escalation'], veto_recommendation: 'hard' } as Agent23Output,
+    }));
+    expect(r.vetoSource).toBe('behavioral');
+  });
+
+  it('Agent 07 chop veto threshold = 75 on 1m', () => {
+    const r = runVetoCascade(vetoInput({
+      agent07: { agent_id: '07', score: 90, confidence: 80, abstain: false, evidence: [], label: 'CHOP', veto_overridable: false } as Agent07Output,
+    }));
+    expect(r.vetoSource).toBe('choppiness');
+  });
+
+  it('Agent 07 chop veto threshold = 85 on 20s timeframe', () => {
+    const r = runVetoCascade(vetoInput({
+      agent07: { agent_id: '07', score: 90, confidence: 80, abstain: false, evidence: [], label: 'CHOP', veto_overridable: false } as Agent07Output,
+      timeframe: '20s',
+    }));
+    // confidence 80 < 85 threshold for 20s, so veto does NOT fire
+    expect(r.vetoSource).not.toBe('choppiness');
+  });
+
+  it('Agent 14 hard veto on score≥85 + confidence≥75', () => {
+    const r = runVetoCascade(vetoInput({
+      agent14: { agent_id: '14', score: 90, confidence: 80, abstain: false, evidence: [], downgrade_factor: 1, variant_d_promotable: false } as Agent14Output,
+    }));
+    expect(r.vetoSource).toBe('failed_bounce');
+  });
+
+  it('Agent 16 R:R floor → soft veto', () => {
+    const r = runVetoCascade(vetoInput({
+      agent16: { agent_id: '16', score: 30, confidence: 80, abstain: false, evidence: [], stop_price: 100, target_price: 101, achievable_r: 0.5, forces_downgrade: true } as Agent16Output,
+    }));
+    expect(r.vetoSource).toBe('rr_floor');
+    expect(r.vetoSeverity).toBe('soft');
+  });
+
+  it('soft Agent 23 logged but not applied when something else wins', () => {
+    const r = runVetoCascade(vetoInput({
+      agent23: { agent_id: '23', score: 30, confidence: 70, abstain: false, evidence: [], state: 'probable_tilt', flags_firing: [], veto_recommendation: 'soft' } as Agent23Output,
+      agent14: { agent_id: '14', score: 90, confidence: 80, abstain: false, evidence: [], downgrade_factor: 1, variant_d_promotable: false } as Agent14Output,
+    }));
+    expect(r.vetoSource).toBe('failed_bounce');
+    expect(r.loggedButNotApplied).toContain('agent_23_soft');
+  });
+});
+
+/* ── classifyDevilsAdvocate ─────────────────────────────────────────── */
+
+describe('classifyDevilsAdvocate', () => {
+  it('thresholds match spec §8', () => {
+    expect(classifyDevilsAdvocate(0)).toBe('none');
+    expect(classifyDevilsAdvocate(39)).toBe('none');
+    expect(classifyDevilsAdvocate(40)).toBe('add_concern');
+    expect(classifyDevilsAdvocate(64)).toBe('add_concern');
+    expect(classifyDevilsAdvocate(65)).toBe('downgrade_one_tier');
+    expect(classifyDevilsAdvocate(84)).toBe('downgrade_one_tier');
+    expect(classifyDevilsAdvocate(85)).toBe('force_skip');
+    expect(classifyDevilsAdvocate(100)).toBe('force_skip');
+  });
+});
+
+/* ── applyDevilsAdvocate ────────────────────────────────────────────── */
+
+describe('applyDevilsAdvocate', () => {
+  it('none/add_concern preserves verdict', () => {
+    const r = applyDevilsAdvocate('TAKE_NOW', {
+      counterEvidenceStrength: 50,
+      counterArgument: 'mild concern',
+      modeAdjustment: 'add_concern',
+    });
+    expect(r.verdict).toBe('TAKE_NOW');
+  });
+
+  it('downgrade_one_tier: TAKE_NOW → WAIT_FOR_LEVEL', () => {
+    const r = applyDevilsAdvocate('TAKE_NOW', {
+      counterEvidenceStrength: 75,
+      counterArgument: 'x',
+      modeAdjustment: 'downgrade_one_tier',
+    });
+    expect(r.verdict).toBe('WAIT_FOR_LEVEL');
+  });
+
+  it('downgrade_one_tier: WAIT_FOR_LEVEL → SKIP', () => {
+    const r = applyDevilsAdvocate('WAIT_FOR_LEVEL', {
+      counterEvidenceStrength: 75,
+      counterArgument: 'x',
+      modeAdjustment: 'downgrade_one_tier',
+    });
+    expect(r.verdict).toBe('SKIP');
+  });
+
+  it('force_skip → SKIP regardless of starting verdict', () => {
+    const r = applyDevilsAdvocate('TAKE_NOW', {
+      counterEvidenceStrength: 95,
+      counterArgument: 'x',
+      modeAdjustment: 'force_skip',
+    });
+    expect(r.verdict).toBe('SKIP');
+  });
+
+  it('preserves SKIP_OUT_OF_SCOPE through downgrade', () => {
+    const r = applyDevilsAdvocate('SKIP_OUT_OF_SCOPE', {
+      counterEvidenceStrength: 75,
+      counterArgument: 'x',
+      modeAdjustment: 'downgrade_one_tier',
+    });
+    expect(r.verdict).toBe('SKIP_OUT_OF_SCOPE');
   });
 });

@@ -12,17 +12,22 @@ import type {
   AnyAgentOutput,
   Agent02Output,
   Agent04Output,
+  Agent07Output,
   Agent08Output,
   Agent09Output,
   Agent10Output,
   Agent13Output,
   Agent14Output,
+  Agent16Output,
   Agent17Output,
   Agent18Output,
   Agent19Output,
   Agent20Output,
   Agent21Output,
+  Agent22Output,
+  Agent23Output,
   Agent24Output,
+  Agent25Output,
   Agent26Output,
 } from '@/types/agents';
 import type {
@@ -104,7 +109,26 @@ export function applyFailedBounceDowngrade(
 
 /* ── Step 2 — Base composite ─────────────────────────────────────── */
 
-/* v8 ignore start - stub, implemented in Step 4+ once base agents wire up */
+/**
+ * Compute the base composite per Wave E spec §1.2.
+ *
+ *   base = 02 × 0.25                          (cloud_compression)
+ *        + 02 × 0.20 × 0.70                   (ema_acceleration, 02 share)
+ *        + 08 × 0.20 × 0.30                   (ema_acceleration, 08 share)
+ *        + 20 × 0.15                          (setup_freshness)
+ *        + 09 × 0.15 × 0.65                   (trigger_body_ratio, 09 share)
+ *        + 13 × 0.15 × 0.35                   (trigger_body_ratio, 13 share)
+ *        + 04 × 0.10 × 0.60                   (wick_penetration, 04 share)
+ *        + 10 × 0.10 × 0.40                   (wick_penetration, 10 share)
+ *        + 19 × 0.15                          (prior_trigger_outcome)
+ *
+ * Abstention handling (spec §1.3):
+ *   - 1 abstain → redistribute that weight pro-rata, +5 abstain_penalty
+ *   - 2 abstains → redistribute, +10 abstain_penalty
+ *   - 3+ abstains → caller should hard-route to SKIP (we still return
+ *                   a composite for observability but caller checks abstainCount)
+ *   - Agent 19 abstains specifically → caller caps final at 60 (spec §1.3)
+ */
 export function computeBaseComposite(
   agent02: Agent02Output | null,
   agent04: Agent04Output | null,
@@ -115,24 +139,82 @@ export function computeBaseComposite(
   agent19: Agent19Output | null,
   agent20: Agent20Output | null,
 ): BaseComposite {
-  // Stub: build contributions list, sum weighted scores, count abstains
-  // Spec §1.2 base formula:
-  //   base = 02*0.25 + 02*0.20*0.70 + 08*0.20*0.30
-  //        + 20*0.15
-  //        + 09*0.15*0.65 + 13*0.15*0.35
-  //        + 04*0.10*0.60 + 10*0.10*0.40
-  //        + 19*0.15
-  void agent02;
-  void agent04;
-  void agent08;
-  void agent09Adjusted;
-  void agent10;
-  void agent13;
-  void agent19;
-  void agent20;
-  throw new NotImplemented('computeBaseComposite');
+  type Contribution = {
+    agentId: string;
+    factor: string;
+    weight: number;
+    rawScore: number | null;
+  };
+
+  // Effective weights for each base composite slot:
+  const slots: Contribution[] = [
+    { agentId: '02', factor: 'cloud_compression', weight: FACTOR_WEIGHTS.cloudCompression, rawScore: agent02?.score ?? null },
+    { agentId: '02', factor: 'ema_acceleration_share', weight: FACTOR_WEIGHTS.emaAcceleration * SUB_WEIGHTS.emaAcceleration.agent02, rawScore: agent02?.score ?? null },
+    { agentId: '08', factor: 'ema_acceleration_share', weight: FACTOR_WEIGHTS.emaAcceleration * SUB_WEIGHTS.emaAcceleration.agent08, rawScore: agent08?.score ?? null },
+    { agentId: '20', factor: 'setup_freshness', weight: FACTOR_WEIGHTS.setupFreshness, rawScore: agent20?.score ?? null },
+    { agentId: '09', factor: 'trigger_body_ratio_share', weight: FACTOR_WEIGHTS.triggerBodyRatio * SUB_WEIGHTS.triggerBodyRatio.agent09, rawScore: agent09Adjusted?.score ?? null },
+    { agentId: '13', factor: 'trigger_body_ratio_share', weight: FACTOR_WEIGHTS.triggerBodyRatio * SUB_WEIGHTS.triggerBodyRatio.agent13, rawScore: agent13?.score ?? null },
+    { agentId: '04', factor: 'wick_penetration_share', weight: FACTOR_WEIGHTS.wickPenetration * SUB_WEIGHTS.wickPenetration.agent04, rawScore: agent04?.score ?? null },
+    { agentId: '10', factor: 'wick_penetration_share', weight: FACTOR_WEIGHTS.wickPenetration * SUB_WEIGHTS.wickPenetration.agent10, rawScore: agent10?.score ?? null },
+    { agentId: '19', factor: 'prior_trigger_outcome', weight: FACTOR_WEIGHTS.priorTriggerOutcome, rawScore: agent19?.score ?? null },
+  ];
+
+  // Count distinct agent abstentions (an agent that fills two slots only
+  // counts once for abstain purposes).
+  const distinctAbstainAgents = new Set<string>();
+  for (const slot of slots) {
+    if (slot.rawScore === null) distinctAbstainAgents.add(slot.agentId);
+  }
+  const abstainCount = distinctAbstainAgents.size;
+
+  // Sum of weights from non-abstaining slots
+  const presentWeight = slots
+    .filter((s) => s.rawScore !== null)
+    .reduce((sum, s) => sum + s.weight, 0);
+
+  if (presentWeight === 0) {
+    // Everything abstained — return a 0 score, max abstain penalty
+    return {
+      score: 0,
+      contributions: slots.map((s) => ({
+        agentId: s.agentId, factor: s.factor, weight: s.weight,
+        rawScore: 0, contribution: 0,
+      })),
+      abstainCount: distinctAbstainAgents.size,
+      abstainPenalty: 50,
+    };
+  }
+
+  // Pro-rata redistribute: scale up surviving slots so their weights sum to 1.0
+  const scale = 1.0 / presentWeight;
+
+  const contributions = slots.map((s) => {
+    const effectiveScore = s.rawScore ?? 0;
+    const effectiveWeight = s.rawScore === null ? 0 : s.weight * scale;
+    return {
+      agentId: s.agentId,
+      factor: s.factor,
+      weight: effectiveWeight,
+      rawScore: effectiveScore,
+      contribution: effectiveWeight * effectiveScore,
+    };
+  });
+
+  const score = contributions.reduce((sum, c) => sum + c.contribution, 0);
+
+  // Abstain penalty per spec §1.3
+  let abstainPenalty = 0;
+  if (abstainCount === 1) abstainPenalty = 5;
+  else if (abstainCount === 2) abstainPenalty = 10;
+  else if (abstainCount >= 3) abstainPenalty = 50; // caller should also force SKIP
+
+  return {
+    score: Math.max(0, Math.min(100, score)),
+    contributions,
+    abstainCount,
+    abstainPenalty,
+  };
 }
-/* v8 ignore stop */
 
 /* ── Step 3 — Alignment-gate cap ─────────────────────────────────── */
 
@@ -228,64 +310,216 @@ export function applyNqDisclaimerCap(
 
 /* ── Step 7 — Initial verdict-mode mapping ───────────────────────── */
 
-/* v8 ignore start - stubs, implemented in Step 4+ */
+/**
+ * Map final composite score → verdict mode per spec §6.
+ *
+ * Note: `agent19Abstained` callers use this to enforce the §1.3 spine cap
+ * separately (cap final score at 60 BEFORE calling mapToVerdict).
+ */
 export function mapToVerdict(
   finalScore: number,
   agent00bState: string | null,
   variantIsA: boolean,
   agent19Abstained: boolean,
 ): { verdict: string; capAppliedFromSpine: boolean } {
-  // Spec §6 mapping table.
-  void finalScore;
-  void agent00bState;
-  void variantIsA;
-  void agent19Abstained;
-  throw new NotImplemented('mapToVerdict');
+  // Non-Variant-A is routed to SKIP_OUT_OF_SCOPE upstream (Wave 0); this
+  // function is only called on Variant A paths. Defensive check anyway:
+  if (!variantIsA) {
+    return { verdict: 'SKIP_OUT_OF_SCOPE', capAppliedFromSpine: false };
+  }
+
+  // Wave 0 state-based overrides take precedence
+  if (agent00bState === 'RANGE_BOUND' || agent00bState === 'INSUFFICIENT_HISTORY') {
+    return { verdict: 'SKIP', capAppliedFromSpine: agent19Abstained };
+  }
+
+  if (agent00bState === 'TREND_ESTABLISHED_RUNNING') {
+    // Even high score routes to WAIT or SKIP per spec §6 mapping table
+    return {
+      verdict: finalScore >= 60 ? 'WAIT_FOR_LEVEL' : 'SKIP',
+      capAppliedFromSpine: agent19Abstained,
+    };
+  }
+
+  // Score-based mapping (spec §6 + §11)
+  if (finalScore >= 80) {
+    return { verdict: 'TAKE_NOW', capAppliedFromSpine: agent19Abstained };
+  }
+  if (finalScore >= 60) {
+    return { verdict: 'WAIT_FOR_LEVEL', capAppliedFromSpine: agent19Abstained };
+  }
+  if (finalScore >= 40) {
+    // 40-59 maps to WAIT or FORMING based on state
+    if (agent00bState === 'TREND_FORMING' || agent00bState === 'REGIME_TRANSITION') {
+      return { verdict: 'SETUP_FORMING', capAppliedFromSpine: agent19Abstained };
+    }
+    return { verdict: 'WAIT_FOR_LEVEL', capAppliedFromSpine: agent19Abstained };
+  }
+  return { verdict: 'SKIP', capAppliedFromSpine: agent19Abstained };
 }
 
 /* ── Step 8 — Veto cascade ───────────────────────────────────────── */
 
-export function runVetoCascade(
-  outputs: AnyAgentOutput[],
-  initialVerdict: string,
-): VetoResult {
-  // Priority order per spec §7: 38, 22, 23, 07, 14, 25, 16
-  void outputs;
-  void initialVerdict;
-  throw new NotImplemented('runVetoCascade');
+export interface VetoCascadeInput {
+  agent38: { passed: boolean; degradation_flags?: string[] } | null;
+  agent22: Agent22Output | null;
+  agent23: Agent23Output | null;
+  agent07: Agent07Output | null;
+  agent14: Agent14Output | null;
+  agent25: Agent25Output | null;
+  agent16: Agent16Output | null;
+  /** Wave 0 timeframe — Agent 07 chop threshold escalates on sub-30s charts */
+  timeframe: string | null;
+}
+
+/**
+ * Apply vetoes in priority order per spec §7. First veto fires; subsequent
+ * vetoes are logged but do not change the verdict.
+ *
+ * Priority order: 38 → 22 → 23 → 07 → 14 → 25 → 16
+ */
+export function runVetoCascade(input: VetoCascadeInput): VetoResult {
+  const logged: string[] = [];
+
+  // 1. Input quality (Agent 38)
+  if (input.agent38 && input.agent38.passed === false) {
+    return {
+      fired: true,
+      vetoSource: 'input_quality',
+      vetoSeverity: 'hard',
+      vetoReason: `input quality gate failed: ${(input.agent38.degradation_flags ?? []).join(', ')}`,
+      loggedButNotApplied: [],
+    };
+  }
+
+  // 2. News/event (Agent 22) — veto fires when veto_fires=true (spec §7 row 2)
+  if (input.agent22?.veto_fires) {
+    return {
+      fired: true,
+      vetoSource: 'news_event',
+      vetoSeverity: 'hard',
+      vetoReason: input.agent22.evidence?.[0] ?? 'event proximity veto',
+      loggedButNotApplied: [],
+    };
+  }
+
+  // 3. Behavioral (Agent 23)
+  if (input.agent23?.veto_recommendation === 'hard') {
+    return {
+      fired: true,
+      vetoSource: 'behavioral',
+      vetoSeverity: 'hard',
+      vetoReason: input.agent23.evidence?.[0] ?? 'confirmed tilt',
+      loggedButNotApplied: [],
+    };
+  }
+  if (input.agent23?.veto_recommendation === 'soft') {
+    logged.push('agent_23_soft');
+  }
+
+  // 4. Choppiness (Agent 07) — veto fires on label=CHOP + confidence threshold
+  if (input.agent07 && input.agent07.label === 'CHOP' && !input.agent07.abstain) {
+    const confidenceThreshold = input.timeframe === '20s' ? 85 : 75;
+    if (input.agent07.confidence >= confidenceThreshold) {
+      return {
+        fired: true,
+        vetoSource: 'choppiness',
+        vetoSeverity: input.agent07.veto_overridable ? 'soft' : 'hard',
+        vetoReason: 'chop regime',
+        loggedButNotApplied: logged,
+      };
+    }
+  }
+
+  // 5. Failed-bounce (Agent 14)
+  if (input.agent14 && input.agent14.score !== null
+      && input.agent14.score >= 85 && input.agent14.confidence >= 75) {
+    return {
+      fired: true,
+      vetoSource: 'failed_bounce',
+      vetoSeverity: 'hard',
+      vetoReason: 'failed-bounce signature confirmed',
+      loggedButNotApplied: logged,
+    };
+  }
+
+  // 6. Disqualifier catalog (Agent 25)
+  if (input.agent25?.veto_severity === 'hard') {
+    return {
+      fired: true,
+      vetoSource: 'disqualifier_catalog',
+      vetoSeverity: 'hard',
+      vetoReason: `disqualifier ${input.agent25.veto_label}`,
+      loggedButNotApplied: logged,
+    };
+  }
+  if (input.agent25?.veto_severity === 'soft') {
+    logged.push('agent_25_soft');
+  }
+
+  // 7. R:R floor (Agent 16) — forces downgrade rather than hard SKIP
+  if (input.agent16?.forces_downgrade) {
+    return {
+      fired: true,
+      vetoSource: 'rr_floor',
+      vetoSeverity: 'soft',
+      vetoReason: `R:R below threshold (${input.agent16.achievable_r ?? 'unknown'})`,
+      loggedButNotApplied: logged,
+    };
+  }
+
+  return {
+    fired: false,
+    vetoSource: null,
+    vetoSeverity: 'none',
+    vetoReason: null,
+    loggedButNotApplied: logged,
+  };
 }
 
 /* ── Step 9 — Devil's advocate pass ──────────────────────────────── */
 
-export async function devilsAdvocatePass(
+/**
+ * Apply devil's-advocate result to verdict per spec §8.
+ *
+ * Pure function — the actual second Opus call is wired in the orchestrator
+ * (orchestrator/index.ts) using the existing invokeAgent harness. This
+ * function only consumes the result.
+ */
+export function applyDevilsAdvocate(
   initialVerdict: string,
-  finalScore: number,
-  agentOutputs: AnyAgentOutput[],
-  imageBase64: string,
-): Promise<DevilsAdvocateResult> {
-  // Second Opus 4.7 call. ~$0.20 with caching. Mandatory per spec.
-  void initialVerdict;
-  void finalScore;
-  void agentOutputs;
-  void imageBase64;
-  throw new NotImplemented('devilsAdvocatePass');
+  da: DevilsAdvocateResult,
+): { verdict: string; modeAdjustment: DevilsAdvocateResult['modeAdjustment'] } {
+  const verdictDowngradeMap: Record<string, string> = {
+    'TAKE_NOW': 'WAIT_FOR_LEVEL',
+    'WAIT_FOR_LEVEL': 'SKIP',
+    'SETUP_FORMING': 'SKIP',
+    'SKIP': 'SKIP',
+    'SKIP_OUT_OF_SCOPE': 'SKIP_OUT_OF_SCOPE',
+    'ABSTAIN_INPUT': 'ABSTAIN_INPUT',
+  };
+
+  if (da.modeAdjustment === 'force_skip') {
+    return { verdict: 'SKIP', modeAdjustment: 'force_skip' };
+  }
+  if (da.modeAdjustment === 'downgrade_one_tier') {
+    return {
+      verdict: verdictDowngradeMap[initialVerdict] ?? initialVerdict,
+      modeAdjustment: 'downgrade_one_tier',
+    };
+  }
+  return { verdict: initialVerdict, modeAdjustment: da.modeAdjustment };
 }
 
-/* ── Step 10 — Card content ──────────────────────────────────────── */
-
-export async function renderVerdictCard(
-  verdict: string,
-  finalScore: number,
-  outputs: AnyAgentOutput[],
-  input: ScoringInput,
-): Promise<VerdictCard> {
-  void verdict;
-  void finalScore;
-  void outputs;
-  void input;
-  throw new NotImplemented('renderVerdictCard');
+/**
+ * Map counter_evidence_strength → modeAdjustment per spec §8 thresholds.
+ */
+export function classifyDevilsAdvocate(counterStrength: number): DevilsAdvocateResult['modeAdjustment'] {
+  if (counterStrength < 40) return 'none';
+  if (counterStrength < 65) return 'add_concern';
+  if (counterStrength < 85) return 'downgrade_one_tier';
+  return 'force_skip';
 }
-/* v8 ignore stop */
 
 /* ── Agreement-banner computation (UX layer) ─────────────────────── */
 
