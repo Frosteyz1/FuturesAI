@@ -1,69 +1,34 @@
-Pluggable agent dispatcher: SDK / Mock / FileQueue
+scripts/run-smoke-test.ts: FileQueue driver for chart-exemplar 09
 
-Refactors invokeAgent() to dispatch through an abstracted AgentDispatcher
-rather than calling Anthropic SDK directly. Three implementations:
+scripts/run-smoke-test.ts
+- Reads chart-exemplar PNG from disk -> base64
+- Configures FileQueueDispatcher (1s poll, 30min per-dispatch timeout,
+  cleanup disabled for audit)
+- Wraps dispatch() with timing capture for per-agent metrics
+- Calls scoreChart() with labeledNqCorpusCount=0 (active /NQ disclaimer
+  + score-cap-85)
+- On completion writes the full ScoringRun + smoke-test metrics to
+  .queue/runs/{runId}.json
+- Prints verdict, direction, variant, tier, final score, action params
+  (entry/stop/target/R), total dispatches, wall clock, avg per-dispatch
 
-src/lib/agents/shared/dispatchers/types.ts
-- AgentDispatcher interface with dispatch(req) -> response shape
-- DispatchRequest with agent_id, tier, prompt, image (base64 OR path),
-  user instruction, max tokens
-- DispatchResponse with rawText + optional usage metrics
-- DispatchError + DispatchTimeoutError exception classes
+Default exemplar = 09 (NinjaTrader 20-second blue cloud bounce, the
+canonical Tier 1 winner). Override with --exemplar=NN.
 
-src/lib/agents/shared/dispatchers/sdk.ts (SdkDispatcher)
-- Wraps current Anthropic SDK call. Production deploy use only.
-  Requires ANTHROPIC_API_KEY. Preserves prompt-cache discipline
-  (cache_control on system prompt).
+scripts/fulfill-queue-request.md
+- Protocol doc for Claude Code (session driver) describing how to
+  fulfill .queue/requests/{id}.json files via Task tool.
+- Lists the request schema, the response schema, the recommended
+  sub-agent prompt template, and parallelism guidance (Wave 0 + Wave
+  A+B+C+D can be fanned out as concurrent Task invocations).
 
-src/lib/agents/shared/dispatchers/mock.ts (MockDispatcher)
-- Fixture-based responses keyed by agent_id. Used for synthesis
-  integration tests (per-agent unit tests already mock at agent-function
-  level via vi.mock and don't need this layer).
-- Supports string fixtures, sync function producers, async function
-  producers — useful when test wants to capture request details.
+Devdeps added:
+- tsx 4.21 — runs TypeScript scripts directly (no separate build step)
+- tsconfig-paths 4.2 — resolves @/lib/* aliases for tsx-run scripts
 
-src/lib/agents/shared/dispatchers/file-queue.ts (FileQueueDispatcher)
-- THE STAGE 4 + SMOKE TEST DISPATCHER.
-- Writes request JSON to .queue/requests/{requestId}.json
-- Polls .queue/responses/{requestId}.json for the response
-- Images persisted once to .queue/images/{sha256}.{ext}, dedupe by content
-- Atomic file writes via temp + rename to prevent partial-read races
-- Configurable poll interval, timeout, cleanup behavior
-- Throws DispatchTimeoutError when no response in timeoutMs
-- Validates response file requestId matches request
+.gitignore: .queue/ already excluded as a runtime artifact dir.
 
-Claude Code session driver (next commit) reads request files, uses Task
-tool to fulfill them, writes response files. Completely satisfies the
-"all execution via Claude Code Max plan, no external API spend"
-constraint from the original Stage 4 build authorization.
-
-src/lib/agents/shared/dispatchers/index.ts
-- getDefaultDispatcher() reads AGENT_DISPATCHER env var:
-  unset/sdk -> SdkDispatcher | file-queue -> FileQueueDispatcher | mock -> MockDispatcher
-- Cached per-process; rebuilt on env change
-- _resetDispatcherCache() exposed for tests
-
-src/lib/agents/shared/invoke.ts
-- invokeAgent() now accepts optional `dispatcher` and `agentId` params
-- Defaults to env-selected dispatcher (SDK by default, backwards compat)
-- Existing 350-test suite passes unchanged because per-agent tests mock
-  at @/lib/anthropic/client level and getDefaultDispatcher selects the
-  cached SdkDispatcher which uses that mocked client
-
-Tests: 18 new dispatcher tests
-- file-queue.test.ts (8 tests): write request file + unblock on response,
-  image persistence + dedup by sha256, timeout, cleanup behavior,
-  cleanupAfterDispatch=false preservation, requestId mismatch rejection
-- mock.test.ts (4 tests): fixture lookup, missing-fixture error,
-  sync/async function producers
-- index.test.ts (7 tests): all 3 selector branches, unknown mode error,
-  cache hit, cache invalidation on mode change
-
-.gitignore: exclude .queue/ runtime artifacts.
-
-368 vitest passing total (350 before + 18 new).
-TypeScript type-check clean.
-Existing per-agent + orchestration tests UNCHANGED — proves backwards
-compat.
-
-Next: scripts/run-smoke-test.mjs FileQueue driver for chart-exemplar 09.
+Next: live smoke test execution against chart-exemplar 09. Claude Code
+will start the script (background), fulfill ~28 Task dispatches, capture
+metrics. Report + halt for user review before authorizing 450-chart
+pilot.
