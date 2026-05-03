@@ -1,51 +1,55 @@
-Stage 2: chart renderer foundation + SSIM golden-file gate
+Stage 3: dynamic stop + outcome labeler with 2.5R/3R/4R buckets
 
-replay-engine/src/replay_engine/stage2/
+replay-engine/src/replay_engine/stage3/dynamic_stop.py
+- Per spec section 6.2: stop is dynamic per setup
+  - Long: more conservative of swing_low or deepest_cloud edge
+  - Short: inverse (swing_high or deepest_cloud upper edge)
+  - Floor 8pt, ceiling 18pt, default 12pt fallback
+- Pivot detection: bar is pivot if low/high beats neighbors at 2 bars
+  on each side, scanning last 20 bars
+- StopLogic enum recorded for audit
+- compute_dynamic_stop returns DynamicStop with raw_swing_distance
+  and raw_cloud_distance for explainability
 
-renderer.py
-- Async render() function wrapping Playwright headless Chromium
-- Two locked profiles (ninjatrader_1min_dark, tos_mobile_dark) per
-  pipeline spec section 5.2
-- Profile configs: background colors, candle styles (solid for NT,
-  TOS-hollow for TOS), cloud colors per platform, viewport dimensions
-- PlaywrightNotInstalled exception when browser binaries missing
-- Note: requires `playwright install chromium` to be run once on the
-  host before render() succeeds; deferred until user returns
+replay-engine/src/replay_engine/stage3/outcome_labeler.py
+- Per spec section 6.3: walk-forward simulation with R-bucket tracking
+- Walks bar-by-bar through OHLCV-1s data; high/low captures intra-bar
+  wick action that hits stop or target (no full Trades schema needed)
+- Tracks all three R-buckets in parallel (2.5R / 3R / 4R) plus
+  max_r_achieved
+- Primary outcome semantics:
+  W  = r_to_2_5R hit (regardless of post-2.5R behavior)
+  L  = stop hit before 2.5R
+  BE = max_hold reached without resolution
+  null = forward data exhausted before max_hold AND no resolution
+- MFE/MAE in R-relative terms (peak/trough divided by dynamic stop)
 
-lightweight_charts_template.html
-- TradingView Lightweight Charts pinned to v5.0.7 via unpkg CDN
-- window.renderChart(payload) callable from Python via page.evaluate()
-- Renders candlesticks + 6 EMA lines (3 cloud pairs)
-- TODO: filled regions between EMA pairs deferred until first
-  golden-file SSIM iteration that needs it
+tests/test_dynamic_stop.py - 14 tests
+- Spec invariants (8/12/18 constants)
+- Swing low/high pivot detection (clear pivot, no pivot, short data,
+  most-recent-pivot priority)
+- Cloud edge selection (long uses lower EMA, short uses upper)
+- Long picks swing when more conservative; long picks cloud when
+  more conservative
+- Floor clamp at 8pt, ceiling clamp at 18pt
+- Default 12pt fallback when no structural signal
+- Short direction inverse
+- Cloud on wrong side ignored (falls back to swing or default)
 
-golden_file.py
-- SSIM comparator using scikit-image structural_similarity
-- SSIM_THRESHOLD = 0.85, MAX_RENDERER_ITERATIONS = 5 per spec section 5.3
-- compute_ssim, best_match, gate_passed
-- GoldenFileRegistry maps profile to exemplar PNG paths
+tests/test_outcome_labeler.py - 11 tests
+- R bucket constants
+- Stop hit returns L (with r_multiple = -1.0)
+- 2.5R hit returns W; 3R runner; 4R full runner
+- Time-stop returns BE when neither hit within 60s
+- Short direction inverse (2.5R hit, stop hit)
+- Empty forward data returns null outcome
+- Insufficient forward data (ran out before max_hold) returns null
+- MFE/MAE tracking
+- Zero-stop validation raises
+- Event-confounded flag passthrough
 
-scikit-image added to pyproject.toml dependencies.
+134 pytest pass total. Audit clean. 54 vitest still pass.
 
-tests/test_golden_file.py - 12 tests:
-- spec invariants (threshold, max iterations)
-- identical images score 1.0
-- very-different images fail threshold
-- resize handles mismatched dimensions
-- low-noise passes threshold
-- best_match picks highest SSIM
-- empty references raises
-- gate passes when all samples beat threshold
-- gate fails when any sample below
-- registry resolves NT-profile and TOS-profile exemplars (skipped if
-  exemplars dir absent on the dev machine)
-
-Subtle bug fixed: imread(as_gray=True) returns uint8 (0-255) for 8-bit
-PNGs while resize() returns float (0-1). Mixed dtypes destroyed SSIM.
-img_as_float normalizes both before compare.
-
-104 pytest pass total. Audit clean. 54 vitest still pass.
-
-Stage 2 RUN remains halted until user runs `playwright install
-chromium` (~150MB Chromium download) and verifies golden-file SSIM
-against the 11 chart-exemplars.
+Stage 3 RUN remains halted until user confirms Databento OHLCV-1s
+historical tier (Stage 1 prerequisite). Code is ready to consume
+that data shape when entitlement confirmed.
