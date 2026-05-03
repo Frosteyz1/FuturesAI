@@ -70,22 +70,50 @@ class RenderedFrame(BaseModel):
 
 Outcome = Literal["W", "L", "BE"]
 Direction = Literal["long", "short"]
+StopLogic = Literal["swing_low", "swing_high", "deepest_cloud", "default_12pt"]
 
 
 class OutcomeLabel(BaseModel):
+    """Stage 3 outcome label per pipeline spec §6.3 (post-2026-05-03 correction).
+
+    Outcome is the primary binary label consumed by Stage 5 calibration:
+        'W'  = r_to_2_5r == true (reached 2.5R discipline floor before stop)
+        'L'  = stop hit before reaching 2.5R
+        'BE' = neither stop nor 2.5R hit within max_hold (60 bars)
+        None = outcome lag insufficient (within last 60 bars of dataset)
+
+    Secondary labels (r_to_3r, r_to_4r, max_r_achieved) preserve scenario richness
+    for the three-bucket calibration analysis in Stage 5.
+    """
     candidate_id: str
     direction: Direction
-    outcome: Outcome | None = None  # null if outcome lag insufficient
-    r_multiple: float | None = None
-    hit_1r: bool = False
-    hit_1_5r: bool = False
-    hit_2r: bool = False
-    hit_3r: bool = False
-    time_to_1r_seconds: int | None = None
-    mfe_pct: float | None = None  # R-relative
+
+    # Dynamic stop computed per §6.2 (NQ points)
+    dynamic_stop_used: float
+    stop_logic: StopLogic
+
+    # Primary outcome (W/L/BE)
+    outcome: Outcome | None = None
+    r_multiple: float | None = None  # final R at exit
+    max_r_achieved: float | None = None  # peak R at any point before exit
+
+    # Three R-buckets — primary calibration targets
+    r_to_2_5r: bool = False  # the W floor
+    r_to_3r: bool = False    # typical target
+    r_to_4r: bool = False    # runner
+
+    # Time-to-bucket (seconds from entry to bucket-hit, null if not hit)
+    time_to_2_5r_seconds: int | None = None
+    time_to_3r_seconds: int | None = None
+    time_to_4r_seconds: int | None = None
+
+    # MFE/MAE (R-relative against dynamic_stop_used)
+    mfe_pct: float | None = None
     mae_pct: float | None = None
     time_to_max_fe_seconds: int | None = None
     time_to_max_ae_seconds: int | None = None
+
+    # Edge cases
     hit_max_hold: bool = False
     event_confounded: bool = False
 
