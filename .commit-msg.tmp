@@ -1,70 +1,73 @@
-Step 5: Wave E synthesis fully implemented + scoreChart wiring
+Step 6: end-to-end smoke test on chart-exemplar 09 (mocked)
 
-src/lib/orchestrator/synthesis.ts — 5 previously-stubbed functions
-now implemented per spec:
+src/lib/orchestrator/index.test.ts — 20 test scenarios
 
-- computeBaseComposite: 9-slot weighted sum per spec section 1.2
-  - 02 cloud_compression 0.25 + 02 ema_accel share 0.20*0.70
-  - 08 ema_accel share 0.20*0.30
-  - 20 setup_freshness 0.15
-  - 09 trigger_body share 0.15*0.65 + 13 trigger_body share 0.15*0.35
-  - 04 wick_pen share 0.10*0.60 + 10 wick_pen share 0.10*0.40
-  - 19 prior_trigger_outcome 0.15
-  Abstention handling per spec section 1.3: pro-rata redistribution,
-  +5/+10/+50 abstain_penalty. Distinct-agent abstain count (Agent 02
-  filling 2 slots only counts once).
+Reads chart-exemplar 09 (NinjaTrader 20-second blue cloud bounce) from
+disk as base64, mocks all 30 agent invocations + the devil's advocate
+Opus call, runs scoreChart() end-to-end, asserts the resulting
+ScoringRun has the expected shape.
 
-- mapToVerdict: spec section 6 mapping table.
-  - non-Variant-A → SKIP_OUT_OF_SCOPE
-  - score >= 80 + actionable state → TAKE_NOW
-  - 60-79 → WAIT_FOR_LEVEL
-  - 40-59 → SETUP_FORMING (TREND_FORMING) or WAIT_FOR_LEVEL
-  - <40 → SKIP
-  - RANGE_BOUND/INSUFFICIENT_HISTORY → SKIP regardless
-  - TREND_ESTABLISHED_RUNNING → WAIT or SKIP regardless of score
+Happy path scenarios (10 tests):
+- Variant A Tier 1 winner produces TAKE_NOW verdict
+- entry/stop/target/contractCount populated from upstream agents
+- /NQ disclaimer applied when corpus < 30
+- /NQ disclaimer omitted when corpus >= 30
+- Composite capped at 85 with /NQ corpus < 30
+- Agreement banner: agree (long+long), disagree_reverse (short+long)
+- All 30+ agent invocations complete (Wave 0 + 4 waves + DA)
+- Top reasons (1-3) and concern populated
+- Pipeline trace records all steps (base/capped/modulated/skepticism/DA)
+- Run completes in <1s with mocked agents
 
-- runVetoCascade: priority order 38 → 22 → 23 → 07 → 14 → 25 → 16
-  per spec section 7. First veto wins; subsequent vetoes logged.
-  Agent 07 chop threshold escalates to 85 on 20s timeframe; Agent 16
-  forces soft downgrade not hard SKIP.
+Short-circuit scenarios (6 tests):
+- Agent 38 input fail → ABSTAIN_INPUT, no Wave 0 calls
+- Variant B → SKIP_OUT_OF_SCOPE, no Wave A/B/C/D
+- CHOP veto → SKIP
+- FOMC event veto → SKIP
+- Confirmed tilt veto → SKIP
+- Devil's advocate force_skip → SKIP regardless of upstream verdict
 
-- classifyDevilsAdvocate: spec section 8 thresholds (40/65/85)
-  → none / add_concern / downgrade_one_tier / force_skip.
+Devil's advocate downgrade (1 test):
+- DA strength 70 (downgrade_one_tier) → TAKE_NOW becomes WAIT_FOR_LEVEL
 
-- applyDevilsAdvocate: pure verdict transformation per the mode
-  adjustment. SKIP_OUT_OF_SCOPE preserved through downgrades.
+Robustness (2 tests):
+- DA Opus call failure does NOT abort run (proceeds with pre-DA verdict)
+- Individual Wave A agent failure does NOT abort (abstain penalty applied)
 
-src/lib/orchestrator/index.ts — scoreChart() entry point fully wired:
-- Step 1: Wave 0 input quality (Agent 38) → ABSTAIN_INPUT short-circuit
-- Step 2: Wave 0 routing → out_of_scope/skip_no_edge/wait_for_level
-  short-circuits each build a minimal ScoringRun with appropriate card
-- Step 3: Wave A/B/C/D parallel fan-out via Promise.all
-- Step 4: 10-step Wave E synthesis pipeline (4a-4j)
-- Step 5: Devil's advocate Opus call (mandatory per spec section 8;
-  failure does NOT abort run)
-- Step 6: Calibration lookup (non-LLM, deterministic)
-- Step 7: Card composition with action params (TAKE), wait params
-  (WAIT), pattern label, top reasons, agreement banner, /NQ disclaimer
-  footer, agreement banner per spec section 12 framing pivot
+vi.hoisted() pattern used to declare all 31 mock functions before
+vi.mock() statements. invokeAgent module mocked separately to capture
+the devil's-advocate direct call.
 
-src/lib/orchestrator/devils-advocate-prompt.md — system prompt for the
-mandatory second-Opus red-team pass. Reuses Agent26Schema (treated as
-re-invocation of Agent 26 with upstream summary populated).
+350 vitest passing total. TypeScript type-check clean. Pytest 134
+still passing.
 
-Tests: 32 new synthesis tests covering all 5 new functions:
-- computeBaseComposite: weighted sum verification, abstention handling
-  (1/2/3+ abstains), all-null edge case, bounds clamping
-- mapToVerdict: all spec section 6 mapping rows including state-based
-  overrides, capAppliedFromSpine flag
-- runVetoCascade: priority order verification, Agent 07 timeframe-aware
-  threshold, soft-veto logging when hard wins
-- classifyDevilsAdvocate: all 4 threshold transitions
-- applyDevilsAdvocate: all 4 modeAdjustment paths including
-  SKIP_OUT_OF_SCOPE preservation
+═══════════════════════════════════════════════════════════════════════
+HALT POINT — Steps 4 + 5 + 6 complete.
+═══════════════════════════════════════════════════════════════════════
 
-330 vitest passing total (298 before + 32 new). 134 pytest still
-passing. TypeScript type-check clean.
+Per autonomous build authorization: "Step 4 (40 specialists) → Step 5
+(Wave E meta-judge wiring) → Step 6 (end-to-end smoke test on one
+chart-exemplar) → halt for my explicit go-ahead before Stage 4 mass
+scoring kickoff."
 
-Step 5 status: COMPLETE.
-Next: Step 6 (mocked end-to-end smoke test on chart-exemplar) →
-halt for user go-ahead on Stage 4 mass scoring.
+The V1 production system is feature-complete for mocked end-to-end:
+- 28 LLM-invocable agents wired with prompts, invocations, Zod
+  validation, and unit tests
+- 1 non-LLM calibration lookup (Agent 27) with cold-start ladder
+- 5-routing Wave 0 (abstain_input / out_of_scope / actionable_now /
+  wait_for_level / skip_no_edge)
+- 4 wave parallel fan-outs (Promise.allSettled, individual agent
+  failures don't abort the run)
+- 10-step Wave E synthesis (base composite weighted sum, alignment
+  cap, context multipliers, skepticism, /NQ disclaimer cap, verdict
+  mapping, veto cascade, devil's advocate, calibration, card)
+- All §0.6 weights and §1.0 alignment-gate caps preserved exactly
+- Variant A only for V1 (B/C/D/OTHER short-circuit)
+- /NQ disclaimer + score-cap-at-85 active until corpus reaches 30
+- Devil's advocate mandatory per spec section 8 (failure non-aborting)
+- Privacy posture: Agent 23 receives categorical state, not raw P&L
+
+Pending Kevin authorization to proceed to:
+1. Live API testing (real Anthropic key)
+2. Phase 1.5 backtest infrastructure build
+3. Stage 4 paced LLM scoring (450-frame pilot batch per latest auth)
