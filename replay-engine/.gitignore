@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.python-version
+
+# Build
+build/
+dist/
+*.egg
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.pyright/
+
+# Env (secrets)
+.env
+.env.local
+!.env.example
+
+# Data caches (keep checked-in code clean of binary blobs)
+data/
+*.parquet
+*.feather
+frames/
+*.png
+!golden/*.png            # except renderer golden-file references
+
+# Modal
+.modal/
+
+# IDE
+.vscode/
+.idea/
+*.swp
